@@ -62,7 +62,7 @@ private fun jsPolygonOffset(g: JsAny, f: Double, u: Double): Unit = js("g.polygo
 private fun jsReadPixels(g: JsAny, x: Int, y: Int, w: Int, h: Int, f: Int, t: Int, at: Int, size: Int): Unit = js("g.readPixels(x, y, w, h, f, t, new Uint8Array(wasmExports.memory.buffer, at, size))")
 private fun jsShaderSource(g: JsAny, s: JsAny?, src: String): Unit = js("g.shaderSource(s, src)")
 private fun jsTexImage2D(g: JsAny, t: Int, level: Int, internal: Int, w: Int, h: Int, border: Int, f: Int, type: Int): Unit = js("g.texImage2D(t, level, internal, w, h, border, f, type, null)")
-private fun jsTexImage2DFrom(g: JsAny, t: Int, level: Int, internal: Int, w: Int, h: Int, border: Int, f: Int, type: Int, at: Int, size: Int): Unit = js("g.texImage2D(t, level, internal, w, h, border, f, type, new Uint8Array(wasmExports.memory.buffer, at, size))")
+private fun jsTexImage2DFrom(g: JsAny, t: Int, level: Int, internal: Int, w: Int, h: Int, border: Int, f: Int, type: Int, at: Int, size: Int): Unit = js("g.texImage2D(t, level, internal, w, h, border, f, type, type === 5126 ? new Float32Array(wasmExports.memory.buffer, at, size / 4) : new Uint8Array(wasmExports.memory.buffer, at, size))")
 private fun jsUniform1f(g: JsAny, l: JsAny?, x: Double): Unit = js("g.uniform1f(l, x)")
 private fun jsUniform1i(g: JsAny, l: JsAny?, x: Int): Unit = js("g.uniform1i(l, x)")
 private fun jsUniform3f(g: JsAny, l: JsAny?, x: Double, y: Double, z: Double): Unit = js("g.uniform3f(l, x, y, z)")

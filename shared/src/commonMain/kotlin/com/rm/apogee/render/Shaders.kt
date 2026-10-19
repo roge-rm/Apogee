@@ -100,9 +100,13 @@ object Shaders {
         // quarter seconds since each arrived with its height in deep water in what's left over,
         // ${TsunamiField.SIDE} a side, uTsunamiGrid.x metres apart along uTsunamiEast and
         // uTsunamiNorth from uTsunamiCentre (camera-relative); uTsunamiGrid.y is 0 for none.
+        #ifdef TEXTURE_TSUNAMI
+        uniform highp sampler2D uTsunamiField;
+        #else
         uniform vec4 uTsunami[${TsunamiField.VEC4S}];
         uniform vec4 uTsunamiFirst[${TsunamiField.VEC4S}];
         uniform vec4 uTsunamiSecond[${TsunamiField.VEC4S}];
+        #endif
         uniform vec3 uTsunamiCentre;
         uniform vec3 uTsunamiEast;
         uniform vec3 uTsunamiNorth;
@@ -119,13 +123,26 @@ object Shaders {
         }
         // Height, and the first's deep height and seconds since it arrived.
         vec3 tsunamiPoint(int k) {
+            #ifdef TEXTURE_TSUNAMI
+            vec3 point = texelFetch(uTsunamiField, ivec2(k % ${TsunamiField.SIDE}, k / ${TsunamiField.SIDE}), 0).xyz;
+            float v = point.y;
+            #else
             float v = tsunamiPick(uTsunamiFirst[k / 4], k);
+            #endif
             float q = floor(v);
+            #ifdef TEXTURE_TSUNAMI
+            return vec3(point.x * 0.01, (v - q) * ${TsunamiField.DEEP_SCALE}, q * 0.25);
+            #else
             return vec3(tsunamiPick(uTsunami[k / 4], k) * 0.01, (v - q) * ${TsunamiField.DEEP_SCALE}, q * 0.25);
+            #endif
         }
         // The second's deep height and seconds since it arrived.
         vec2 tsunamiSecond(int k) {
+            #ifdef TEXTURE_TSUNAMI
+            float v = texelFetch(uTsunamiField, ivec2(k % ${TsunamiField.SIDE}, k / ${TsunamiField.SIDE}), 0).z;
+            #else
             float v = tsunamiPick(uTsunamiSecond[k / 4], k);
+            #endif
             float q = floor(v);
             return vec2((v - q) * ${TsunamiField.DEEP_SCALE}, q * 0.25);
         }
@@ -852,6 +869,7 @@ object Shaders {
 
     /** [TERRAIN_VERTEX] and [TERRAIN_FRAGMENT] for frames with no tsunami near (no TsunamiField). */
     val TERRAIN_VERTEX_CALM by lazy { withDefine(TERRAIN_VERTEX, "NO_TSUNAMI") }
+    val TERRAIN_VERTEX_TEXTURE by lazy { withDefine(TERRAIN_VERTEX, "TEXTURE_TSUNAMI") }
     val TERRAIN_FRAGMENT_CALM by lazy { withDefine(TERRAIN_FRAGMENT, "NO_TSUNAMI") }
 
     /** [TERRAIN_FRAGMENT] for the LOW tier: a tsunami's foam lines sized by depth, not derivatives. */

@@ -61,7 +61,13 @@ class ChunkData(
     var boundingRadius: Double,
     /** The parent's triangles at each vertex, measured from [centre]. Cleared after upload. */
     @Volatile var coarseVertices: FloatArray? = null,
+    /** Lower bound for every fine/coarse triangle and skirt, metres above the datum. */
+    var minimumHeight: Double = Double.NEGATIVE_INFINITY,
 )
+
+/** Dry even at the flood grid's maximum level, with room for the shader's float rounding. */
+internal fun tsunamiSafeGround(chunk: ChunkData, radius: Double, tide: Double): Boolean =
+    chunk.minimumHeight > TsunamiFlood.MAX_LEVEL + tide + maxOf(1.0, radius * 1e-6)
 
 object TerrainChunk {
 
@@ -162,6 +168,7 @@ object TerrainChunk {
             val x = target[o].toDouble(); val y = target[o + 1].toDouble(); val z = target[o + 2].toDouble()
             chunk.boundingRadius = maxOf(chunk.boundingRadius, kotlin.math.sqrt(x * x + y * y + z * z))
         }
+        chunk.minimumHeight = minOf(chunk.minimumHeight, heightLowerBound(chunk.centre, target, COARSE_STRIDE, terrain.bodyRadius))
         return chunk
     }
 
@@ -277,7 +284,19 @@ object TerrainChunk {
             }
         }
 
-        return ChunkData(key, vertices, centre, kotlin.math.sqrt(bound) + drop)
+        return ChunkData(key, vertices, centre, kotlin.math.sqrt(bound) + drop,
+            minimumHeight = heightLowerBound(centre, vertices, STRIDE_FLOATS, radius))
+    }
+
+    /** A supporting plane bounds triangle interiors too, including during the parent morph. */
+    internal fun heightLowerBound(centre: Vec3, vertices: FloatArray, stride: Int, radius: Double): Double {
+        val length = centre.length
+        val x = centre.x / length; val y = centre.y / length; val z = centre.z / length
+        var height = Double.POSITIVE_INFINITY
+        for (i in vertices.indices step stride) {
+            height = minOf(height, length - radius + vertices[i] * x + vertices[i + 1] * y + vertices[i + 2] * z)
+        }
+        return height
     }
 
     /** Subdivide the parent's planes, including the far sea, without adding any relief yet. */

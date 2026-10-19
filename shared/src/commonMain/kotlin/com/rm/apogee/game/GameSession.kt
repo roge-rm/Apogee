@@ -216,6 +216,13 @@ class GameSession private constructor(
     @Volatile var debugHideSea = false
     /** Debug: leaves out the weather events' items (tornadoes, tsunamis, quake dust, dust, snow and ash). */
     @Volatile var debugHideEventItems = false
+    @Volatile var debugHideCloudItems = false
+    @Volatile var debugNoTsunamiField = false
+    @Volatile var debugHideSolidSmoke = false
+    @Volatile var effectParticles = 0
+        private set
+    @Volatile var drawnParticles = 0
+        private set
 
     /** How long the last sea build took, in ms, for the debug performance log. */
     val seaBuildMillis: Double get() = seaScene?.lastBuildMillis ?: 0.0
@@ -2103,10 +2110,11 @@ class GameSession private constructor(
         var mapCloud: com.rm.apogee.render.CloudShell? = null
         if (clouds != null) {
             attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
+            clouds.tsunamis.debugSkipField = debugNoTsunamiField
             clouds.update(cloudCamera, renderTime)
             clouds.warnings.update(attractor.toBodyFixed(focusState.position, bodyRotation, warnAt), renderTime, focusId)
             if (!mapMode) {
-                clouds.append(bodyRotation, renderTime, items, pool = itemPool)
+                if (!debugHideCloudItems) clouds.append(bodyRotation, renderTime, items, pool = itemPool)
                 if (!debugHideEventItems) {
                     clouds.tornadoes.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
                     clouds.tsunamis.append(cloudCamera, bodyRotation, renderTime, items, itemPool)
@@ -2170,6 +2178,7 @@ class GameSession private constructor(
         // as the clouds.
         lap(6)
         val fx = effects ?: Effects(terrainQuality ?: QualityTier.MEDIUM).also { effects = it }
+        fx.solidSmokeEnabled = !debugHideSolidSmoke
         fx.sea = seaScene?.let { scene -> { p: Vec3, t: Double, o: com.rm.apogee.core.sea.SeaSample -> scene.sampleInto(p, t, o) } }
         // Where the ears are, and what air there is to carry anything to them.
         val cameraAir = clouds?.air
@@ -2291,6 +2300,8 @@ class GameSession private constructor(
                 clouds?.tornadoes?.debris)
             particles = vertices
             particleShapes = shapes
+            effectParticles = fx.particleCount
+            drawnParticles = shapes
         }
         lap(10)
         val flash = if (mapMode) 0f else fx.flash

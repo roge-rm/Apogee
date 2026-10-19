@@ -266,7 +266,7 @@ class TsunamiSceneTest(
          * with [items] too, once everything near is built. Writes [name] if given. Without
          * [waves], no near sea, as in flight above its reach.
          */
-        fun shoot(name: String?, camera: Vec3, rotation: Quat, time: Double, items: List<RenderItem> = emptyList(), near: Double = 10.0, waves: Boolean = true): Shot {
+        fun shoot(name: String?, camera: Vec3, rotation: Quat, time: Double, items: List<RenderItem> = emptyList(), near: Double = 10.0, waves: Boolean = true, compareLegacy: Boolean = false): Shot {
             val up = Vec3().setTo(camera).normalizeInPlace()
             val altitude = camera.length - radius - maxOf(field.elevation(up), 0.0)
             val sea = SeaScene(terra, luna, config, tier, scope).also { s ->
@@ -274,6 +274,7 @@ class TsunamiSceneTest(
             }
             val tsunamis = TsunamiScene(terra, config, tier, scope)
             listed(tsunamis, camera, time)
+            if (compareLegacy) assertNotNull("tsunami field", tsunamis.field)
             // The sun high behind the camera, so the water shows its colour, not the sun's glint.
             val back = rotation.rotate(Vec3(0.0, 0.0, 1.0), Vec3()).let { it.addScaledInPlace(up, -(it dot up)) }
             val sun = Vec3().setTo(up).addScaledInPlace(if (back.length > 0.1) back.normalizeInPlace() else north(up), 0.6).normalizeInPlace()
@@ -341,6 +342,18 @@ class TsunamiSceneTest(
                 val out = File("../build/tsunami-review").apply { mkdirs() }
                 javax.imageio.ImageIO.write(image, "png", File(out, "$name$tag.png"))
                 println("wrote ${File(out, "$name$tag.png").canonicalPath}")
+            }
+            if (compareLegacy) {
+                renderer.debugLegacyTsunamiTerrain = true
+                renderer.onDrawFrame()
+                val reference = BufferUtils.createByteBuffer(width * height * 4)
+                glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, reference)
+                var different = 0
+                for (i in 0 until width * height) {
+                    if ((0..2).any { c -> kotlin.math.abs((data.get(i * 4 + c).toInt() and 255) - (reference.get(i * 4 + c).toInt() and 255)) > 2 }) different++
+                }
+                renderer.debugLegacyTsunamiTerrain = false
+                assertTrue("$different pixels differ from legacy terrain", different <= width * height / 10_000)
             }
             assertEquals(GL_NO_ERROR, glGetError())
             return Shot(image.getRGB(0, 0, width, height, null, 0, width), depth, near, camera, rotation)
@@ -459,7 +472,7 @@ class TsunamiSceneTest(
             for ((name, over, time) in listOf(Triple("gaps-flooded", flooded, frontAt(flooded) + 120.0), Triple("gaps-bared", bare, e.trough), Triple("gaps-front", berth, front))) {
                 val apart = ArrayList<Double>()
                 val (camera, rotation) = down(over, 700.0)
-                val shot = h.shoot(name, camera, rotation, time)
+                val shot = h.shoot(name, camera, rotation, time, compareLegacy = true)
                 var holes = 0; var floodChecked = 0; var floodWrong = 0; var bareChecked = 0; var bareWrong = 0
                 val sample = com.rm.apogee.core.sea.SeaSample()
                 for (y in 4 until height step 8) for (x in 4 until width step 8) {
@@ -683,6 +696,19 @@ class TsunamiSceneTest(
      * From 30 km above a flooded coast, over the waves' reach so they aren't drawn, the flood grid
      * holds the land straight below too, as the model floods it.
      */
+    @Test fun dryHighlandMatchesTheLegacyTsunamiTerrain() {
+        TestGl.current()
+        val highland = (-25..25).asSequence().flatMap { x ->
+            (-25..25).asSequence().map { y -> offset(berth, x * 1_000.0, y * 1_000.0) }
+        }.first { field.elevation(it) > 100.0 }
+        val camera = above(highland, 120.0)
+        val rotation = look(camera, Vec3().setTo(highland).mulInPlace(radius + field.elevation(highland)), north(highland))
+        Harness(QualityTier.LOW).use { h ->
+            h.shoot("highland-selective", camera, rotation, event.flood, compareLegacy = true)
+            assertTrue("high dry chunks exercised", h.renderer.terrainSource.drawList().any { it.chunk.minimumHeight > TsunamiFlood.MAX_LEVEL + 2.0 })
+        }
+    }
+
     @Test fun floodGridCoversTheLandBelowFromHighUp() {
         val e = event
         val (flooded, _) = places

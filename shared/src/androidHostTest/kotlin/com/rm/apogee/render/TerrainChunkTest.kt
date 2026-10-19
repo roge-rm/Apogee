@@ -150,4 +150,47 @@ class TerrainChunkTest {
         assertEquals("every cell drawn", TerrainChunk.CELLS * TerrainChunk.CELLS, cellsSeen.size)
         assertTrue("two triangles a cell", cellsSeen.values.all { it == 2 })
     }
+    @Test
+    fun `tsunami shader stays on low ground water and unknown geometry`() {
+        fun chunk(height: Double) = ChunkData(ChunkKey(0, 0, 0, 0), null, Vec3(600_000.0, 0.0, 0.0), 1.0, minimumHeight = height)
+        org.junit.Assert.assertFalse(tsunamiSafeGround(chunk(Double.NEGATIVE_INFINITY), 600_000.0, 0.0))
+        org.junit.Assert.assertFalse(tsunamiSafeGround(chunk(-10.0), 600_000.0, 0.0))
+        org.junit.Assert.assertFalse(tsunamiSafeGround(chunk(10.0), 600_000.0, 0.0))
+        assertTrue(tsunamiSafeGround(chunk(60.0), 600_000.0, 0.0))
+        org.junit.Assert.assertFalse(tsunamiSafeGround(chunk(60.0), 600_000.0, 30.0))
+    }
+
+    @Test
+    fun `height bound covers triangle interiors skirts and every parent morph`() {
+        val chunk = chunkNearHome()
+        val fine = chunk.vertices!!
+        val coarse = chunk.coarseVertices!!
+        val indices = TerrainChunk.indices
+        for (morph in listOf(0.0, 0.25, 0.5, 0.75, 1.0)) {
+            for (t in indices.indices step 3) {
+                val p = Vec3().setTo(chunk.centre)
+                for (corner in 0..2) {
+                    val v = indices[t + corner].toInt()
+                    val a = v * TerrainChunk.STRIDE_FLOATS
+                    val b = v * TerrainChunk.COARSE_STRIDE
+                    p.addInPlace(Vec3(
+                        fine[a] * (1.0 - morph) + coarse[b] * morph,
+                        fine[a + 1] * (1.0 - morph) + coarse[b + 1] * morph,
+                        fine[a + 2] * (1.0 - morph) + coarse[b + 2] * morph,
+                    ).mulInPlace(1.0 / 3.0))
+                }
+                assertTrue("triangle $t at $morph", p.length - terra.bodyRadius >= chunk.minimumHeight - 1e-6)
+            }
+        }
+    }
+
+    @Test
+    fun `curved triangles can dip below all their vertex heights`() {
+        val centre = Vec3(100.0, 0.0, 0.0)
+        val vertices = floatArrayOf(0f, 30f, 0f, 0f, -30f, 0f, 0f, 0f, 30f)
+        val bound = TerrainChunk.heightLowerBound(centre, vertices, 3, 100.0)
+        assertEquals(0.0, bound, 1e-9)
+        assertTrue(Vec3(100.0, 30.0, 0.0).length - 100.0 > bound)
+    }
+
 }

@@ -46,6 +46,7 @@ class TsunamiScene(
     /** How long the last field took to work out, in ms. */
     @Volatile var lastFieldMillis = 0.0
         private set
+    @Volatile var debugSkipField = false
 
     /** The roar as last worked out: how loud, how near, and from where, body-fixed. */
     private class Roar(val loudness: Double, val closeness: Double, val from: Vec3)
@@ -78,7 +79,7 @@ class TsunamiScene(
         scope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
                 if (nearDue) {
-                    if (high) { field = null; roar = null; spray = null } else near(at, time)
+                    if (high || debugSkipField) { field = null; roar = null; spray = null; lastFieldMillis = 0.0 } else near(at, time)
                 }
                 if (allDue) all = listAll(time)
             } finally {

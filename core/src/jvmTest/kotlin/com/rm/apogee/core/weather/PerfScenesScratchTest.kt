@@ -14,7 +14,8 @@ import java.io.File
 import kotlin.math.cos
 import kotlin.math.sin
 
-// Scratch, skipped unless PERF_SCENES is set: PERF_SCENES=1 heavy build ./gradlew :core:jvmTest --tests '*PerfScenesScratchTest.scenes' --rerun, then python3 build/fire-perf/e6/make_scenes.py build/fire-perf/e6/scenes/scenes.txt, then the same with '*PerfScenesScratchTest.check' (writes build/fire-perf/e6/scenes/check.txt).
+// With PERF_SCENES=1, run scenes, FireScenesScratchTest.generate, then check through :core:jvmTest.
+// Saves and check.txt go in build/fire-perf/e6/scenes.
 /**
  * Finds an E6 event on Extreme near a craft spot (Terra, and a moonquake on Luna) and writes
  * SCENE lines for make_scenes.py: name, time the event is at the craft, body-fixed up, ground

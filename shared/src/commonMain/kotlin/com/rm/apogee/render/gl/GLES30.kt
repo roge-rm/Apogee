@@ -108,6 +108,7 @@ interface GlConstants {
     val GL_RG8: Int get() = 0x822B
     val GL_RGBA: Int get() = 0x1908
     val GL_RGBA8: Int get() = 0x8058
+    val GL_RGBA32F: Int get() = 0x8814
     val GL_SRC_ALPHA: Int get() = 0x0302
     val GL_STATIC_DRAW: Int get() = 0x88E4
     val GL_STREAM_DRAW: Int get() = 0x88E0
@@ -116,6 +117,7 @@ interface GlConstants {
     val GL_TEXTURE2: Int get() = 0x84C2
     val GL_TEXTURE3: Int get() = 0x84C3
     val GL_TEXTURE4: Int get() = 0x84C4
+    val GL_TEXTURE5: Int get() = 0x84C5
     val GL_TEXTURE_2D: Int get() = 0x0DE1
     val GL_TEXTURE_COMPARE_FUNC: Int get() = 0x884D
     val GL_TEXTURE_COMPARE_MODE: Int get() = 0x884C

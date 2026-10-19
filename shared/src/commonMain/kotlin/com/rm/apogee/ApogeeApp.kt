@@ -1856,9 +1856,13 @@ class ApogeeApp(private val host: AppHost) {
             perfLookedNanos = now
             current.debugHideSea = host.debugSwitch("debug-no-sea")
             current.debugHideEventItems = host.debugSwitch("debug-no-event-items")
+            current.debugHideCloudItems = host.debugSwitch("debug-no-cloud-items")
+            current.debugNoTsunamiField = host.debugSwitch("debug-no-tsunami-field")
+            current.debugHideSolidSmoke = host.debugSwitch("debug-no-solid-smoke")
             current.debugHideStaticScenery = host.debugSwitch("debug-no-static-scenery")
             current.debugNoCraftCulling = host.debugSwitch("debug-no-craft-culling")
             glRenderer.debugNoCloudCulling = host.debugSwitch("debug-no-cloud-culling")
+            glRenderer.debugLegacyTsunamiTerrain = host.debugSwitch("debug-legacy-tsunami-terrain")
             com.rm.apogee.render.Mesh.debugLegacyInstancing = host.debugSwitch("debug-legacy-instancing")
             perfLogging = host.debugSwitch("debug-perf")
             glRenderer.debugCpuTiming = perfLogging
@@ -1882,9 +1886,9 @@ class ApogeeApp(private val host: AppHost) {
             val seconds = (now - perfSince) / 1e9
             Log.i(
                 "ApogeePerf",
-                "fps %.1f draw %.1f ms build %.1f ms sea-build %.1f ms clouds-list %.0f ms tsunami-field %.0f ms warn %.1f ms sea %s tier %s scale %.2f".format(
+                "fps %.1f draw %.1f ms build %.1f ms sea-build %.1f ms clouds-list %.0f ms tsunami-field %.0f ms warn %.1f ms sea %s tier %s scale %.2f particles %d/%d".format(
                     frames / seconds, 1000.0 * seconds / frames.coerceAtLeast(1), perfBuild / perfSamples,
-                    perfSea / perfSamples, current.cloudListMillis, current.tsunamiFieldMillis, current.warningMillis, if (current.debugHideSea) "off" else "on", glRenderer.qualityTier, renderScale,
+                    perfSea / perfSamples, current.cloudListMillis, current.tsunamiFieldMillis, current.warningMillis, if (current.debugHideSea) "off" else "on", glRenderer.qualityTier, renderScale, current.effectParticles, current.drawnParticles,
                 ),
             )
             glRenderer.takePassReport()?.let { Log.i("ApogeePerf", "passes $it") }

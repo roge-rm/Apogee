@@ -182,6 +182,9 @@ class TsunamiFlood(
         /** Steps per metre of level: two bytes reach 32 m. */
         const val PER_METRE = 2_000.0
 
+        /** Largest level the two-byte flood grid can encode, in metres. */
+        const val MAX_LEVEL = 65_535.0 / PER_METRE
+
         /** Writes [level] metres for point [k] into [texels]. */
         fun put(texels: ByteArray, k: Int, level: Double) {
             val v = kotlin.math.round(level * PER_METRE).toInt().coerceIn(1, 65_535)

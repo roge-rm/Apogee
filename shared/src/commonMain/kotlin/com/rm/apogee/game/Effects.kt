@@ -51,6 +51,8 @@ class EngineEmitter(
  */
 class Effects(tier: QualityTier) {
 
+    var solidSmokeEnabled = true
+
     private val capacity = tier.particleBudget
 
     // Particle state, as a structure of arrays. Positions and velocities are body-fixed.
@@ -493,7 +495,7 @@ class Effects(tier: QualityTier) {
         when (e.kind) {
             Exhaust.ROCKET -> {
                 // Smoke off the end of the flame, thick low down and thin high up.
-                if (e.solid) solidSmoke(e, thickness, dt)
+                if (e.solid && solidSmokeEnabled) solidSmoke(e, thickness, dt)
                 val n = if (e.solid) 0 else poisson(60.0 * rateScale * throttle * thickness * dt, e.seed)
                 val flame = e.radius * 12.0 * throttle
                 for (k in 0 until n) {

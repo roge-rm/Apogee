@@ -53,6 +53,7 @@ class GlRenderer(
     @Volatile var timePasses = false
     @Volatile var debugCpuTiming = false
     @Volatile var debugNoCloudCulling = false
+    @Volatile var debugLegacyTsunamiTerrain = false
     private val cloudVisibility = CloudVisibility()
     private val passNanos = LongArray(PASS_NAMES.size)
     private var passFrames = 0
@@ -133,6 +134,8 @@ class GlRenderer(
 
     /** The terrain with a tsunami near on the LOW tier. See [Shaders.TERRAIN_FRAGMENT_LOW]. */
     private var terrainLowProgram: ShaderProgram? = null
+    private var legacyTerrainProgram: ShaderProgram? = null
+    private var legacyTerrainLowProgram: ShaderProgram? = null
 
     /**
      * Terrain geometry, handed over by the game thread. Sampling the height field is too slow for
@@ -286,6 +289,10 @@ class GlRenderer(
     /** A tsunami's flood grid on unit 4 for the ground's vertices, and the one last uploaded. */
     private val floodTexture = IntArray(1)
     private var floodUploaded: TsunamiFlood? = null
+    private val tsunamiTexture = IntArray(1)
+    private var tsunamiUploaded: TsunamiField? = null
+    private val tsunamiTexels = FloatArray(TsunamiField.SIDE * TsunamiField.SIDE * 4)
+    private var tsunamiStaging: GlData? = null
 
     /**
      * 1 by 1 stand-ins for the shadow maps and cloud shadow, bound while they're off: a shadow
@@ -316,9 +323,9 @@ class GlRenderer(
         GLES30.glGenBuffers(1, instanceBuffer, 0)
         GLES30.glGenBuffers(1, solidBuffer, 0)
         skyProgram = ShaderProgram(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky")
-        terrainProgram = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain")
+        terrainProgram = ShaderProgram(Shaders.TERRAIN_VERTEX_TEXTURE, Shaders.TERRAIN_FRAGMENT, "terrain")
         terrainCalmProgram = ShaderProgram(Shaders.TERRAIN_VERTEX_CALM, Shaders.TERRAIN_FRAGMENT_CALM, "terrain-calm")
-        terrainLowProgram = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT_LOW, "terrain-low")
+        terrainLowProgram = ShaderProgram(Shaders.TERRAIN_VERTEX_TEXTURE, Shaders.TERRAIN_FRAGMENT_LOW, "terrain-low")
         lineProgram = ShaderProgram(Shaders.LINE_VERTEX, Shaders.LINE_FRAGMENT, "line")
 
         globeMesh = TerrainMesh()
@@ -729,6 +736,10 @@ class GlRenderer(
     /** The terrain program for [world]: the tsunami one only with a tsunami near, its cheaper one on LOW. */
     private fun terrainFor(world: WorldView): ShaderProgram? = when {
         world.tsunami == null -> terrainCalmProgram
+        debugLegacyTsunamiTerrain && qualityTier == QualityTier.LOW -> legacyTerrainLowProgram
+            ?: ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT_LOW, "terrain-low-legacy").also { legacyTerrainLowProgram = it }
+        debugLegacyTsunamiTerrain -> legacyTerrainProgram
+            ?: ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain-legacy").also { legacyTerrainProgram = it }
         qualityTier == QualityTier.LOW -> terrainLowProgram
         else -> terrainProgram
     }
@@ -766,7 +777,7 @@ class GlRenderer(
      * few metres and the ground doesn't shimmer.
      */
     private fun drawChunks(world: WorldView, cameraPos: Vec3, atmosphereFactor: Float) {
-        val shader = terrainFor(world) ?: return
+        val tsunamiShader = terrainFor(world) ?: return
         val indices = chunkIndices ?: return
         val list = terrainSource.drawList()
 
@@ -800,12 +811,7 @@ class GlRenderer(
             uploads++
         }
 
-        shader.use()
-        applySurfaceUniforms(shader, world, atmosphereFactor, cameraPos)
-        applyShadowUniforms(shader, true)
-        applyLamps(shader, true)
-        shader.setMat4("uViewProjection", nearViewProjection.m)
-        shader.setFloat("uDiscardNearer", 0f)
+        var shader: ShaderProgram? = null
         val now = System.nanoTime()
         val morphFocus = terrainSource.focus()
         for (entry in list) {
@@ -817,15 +823,26 @@ class GlRenderer(
             val appeared = chunkShownAt.getValue(chunk.key)
             val arrival = GridMorph.smooth(0.0, TERRAIN_MORPH_NANOS.toDouble(), (now - appeared).toDouble()).toFloat()
             if (arrival == 1f) terrainSource.markSettled(chunk.key)
-            shader.setFloat("uMorph", 1f - entry.detailAt(morphFocus) * arrival)
             interpolatedBodyRotation.rotate(chunk.centre, scratchChunkCentre)
             // Behind the camera by more than the chunk's size, so none of it can be on screen.
             // Cheap, and usually half the chunks.
             scratchChunkCentre.subInPlace(cameraPos)
             if ((scratchChunkCentre dot cameraForward) < -chunk.boundingRadius) continue
             scratchChunkCentre.addInPlace(cameraPos)
+            val program = if (!debugLegacyTsunamiTerrain && tsunamiSafeGround(chunk, world.radius, world.tide))
+                terrainCalmProgram ?: tsunamiShader else tsunamiShader
+            if (shader !== program) {
+                shader = program
+                program.use()
+                applySurfaceUniforms(program, world, atmosphereFactor, cameraPos)
+                applyShadowUniforms(program, true)
+                applyLamps(program, true)
+                program.setMat4("uViewProjection", nearViewProjection.m)
+                program.setFloat("uDiscardNearer", 0f)
+            }
+            program.setFloat("uMorph", 1f - entry.detailAt(morphFocus) * arrival)
             modelMatrix.setFromTrs(scratchChunkCentre, interpolatedBodyRotation, cameraPos)
-            shader.setMat4("uModel", modelMatrix.m)
+            program.setMat4("uModel", modelMatrix.m)
             mesh.drawQuadrants(entry.quadrants)
         }
         drawnChunks = list.mapTo(HashSet()) { it.key }
@@ -876,7 +893,7 @@ class GlRenderer(
         shader.setVec3("uBodyCentre", (-cameraPos.x).toFloat(), (-cameraPos.y).toFloat(), (-cameraPos.z).toFloat())
         shader.setFloat("uSeaReach", if (world.sea != null) world.seaReach.toFloat() else 0f)
         shader.setFloat("uTide", world.tide.toFloat())
-        applyTsunami(shader, world.tsunami, world.radius, cameraPos, world.time)
+        if (shader !== terrainCalmProgram) applyTsunami(shader, world.tsunami, world.radius, cameraPos, world.time)
         shader.setFloat("uMethane", if (world.water === WorldView.AURANTIA_WATER) 1f else 0f)
         world.sky.seaSky.let { shader.setVec3("uSeaSky", it[0], it[1], it[2]) }
     }
@@ -899,12 +916,43 @@ class GlRenderer(
         shader.setVec3("uTsunamiEast", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
         interpolatedBodyRotation.rotate(field.north, tsunamiScratch)
         shader.setVec3("uTsunamiNorth", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
-        shader.setVec4Array("uTsunami", field.values, TsunamiField.VEC4S)
-        shader.setVec4Array("uTsunamiFirst", field.first, TsunamiField.VEC4S)
-        shader.setVec4Array("uTsunamiSecond", field.second, TsunamiField.VEC4S)
+        if (shader === terrainProgram || shader === terrainLowProgram) {
+            applyTsunamiTexture(field)
+            shader.setInt("uTsunamiField", 5)
+        } else {
+            shader.setVec4Array("uTsunami", field.values, TsunamiField.VEC4S)
+            shader.setVec4Array("uTsunamiFirst", field.first, TsunamiField.VEC4S)
+            shader.setVec4Array("uTsunamiSecond", field.second, TsunamiField.VEC4S)
+        }
         shader.setVec4("uTsunamiWave", field.period.toFloat(), (time - field.time).toFloat(), field.coastCap.toFloat(), field.shoalScale.toFloat())
         shader.setVec4("uTsunamiWave2", field.period2.toFloat(), field.coastCap2.toFloat(), 0f, 0f)
         shader.setVec3("uTsunamiGrid", field.spacing.toFloat(), 1f, 0f)
+    }
+
+    /** The same packed floats as the uniforms, fetched without dynamically indexing big arrays. */
+    private fun applyTsunamiTexture(field: TsunamiField) {
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE5)
+        if (tsunamiTexture[0] == 0) {
+            GLES30.glGenTextures(1, tsunamiTexture, 0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tsunamiTexture[0])
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        } else GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tsunamiTexture[0])
+        if (tsunamiUploaded !== field) {
+            for (i in 0 until TsunamiField.SIDE * TsunamiField.SIDE) {
+                tsunamiTexels[4 * i] = field.values[i]
+                tsunamiTexels[4 * i + 1] = field.first[i]
+                tsunamiTexels[4 * i + 2] = field.second[i]
+            }
+            val buffer = tsunamiStaging ?: GlData(tsunamiTexels.size * 4).also { tsunamiStaging = it }
+            buffer.putFloats(tsunamiTexels)
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA32F, TsunamiField.SIDE, TsunamiField.SIDE, 0,
+                GLES30.GL_RGBA, GLES30.GL_FLOAT, buffer)
+            tsunamiUploaded = field
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
     }
 
     /** A tsunami's flood over low land past the waves, or none, on unit 4. See [TsunamiFlood]. */
@@ -1540,7 +1588,7 @@ class GlRenderer(
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
-        for ((unit, texture) in listOf(GLES30.GL_TEXTURE1 to standIns[0], GLES30.GL_TEXTURE2 to standIns[0], GLES30.GL_TEXTURE3 to standIns[1], GLES30.GL_TEXTURE4 to standIns[1])) {
+        for ((unit, texture) in listOf(GLES30.GL_TEXTURE1 to standIns[0], GLES30.GL_TEXTURE2 to standIns[0], GLES30.GL_TEXTURE3 to standIns[1], GLES30.GL_TEXTURE4 to standIns[1], GLES30.GL_TEXTURE5 to standIns[1])) {
             GLES30.glActiveTexture(unit)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
         }
@@ -1889,6 +1937,8 @@ class GlRenderer(
         terrainProgram?.release(); terrainProgram = null
         terrainCalmProgram?.release(); terrainCalmProgram = null
         terrainLowProgram?.release(); terrainLowProgram = null
+        legacyTerrainProgram?.release(); legacyTerrainProgram = null
+        legacyTerrainLowProgram?.release(); legacyTerrainLowProgram = null
         cloudShellProgram?.release(); cloudShellProgram = null
         cloudShellMesh?.release(); cloudShellMesh = null
         hurricaneVeilProgram?.release(); hurricaneVeilProgram = null
@@ -1931,6 +1981,10 @@ class GlRenderer(
         if (floodTexture[0] != 0) GLES30.glDeleteTextures(1, floodTexture, 0)
         floodTexture[0] = 0
         floodUploaded = null
+        if (tsunamiTexture[0] != 0) GLES30.glDeleteTextures(1, tsunamiTexture, 0)
+        tsunamiTexture[0] = 0
+        tsunamiUploaded = null
+        tsunamiStaging = null
         if (standIns[0] != 0) GLES30.glDeleteTextures(2, standIns, 0)
         standIns.fill(0)
     }

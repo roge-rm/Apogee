@@ -186,7 +186,11 @@ class MainActivity : ComponentActivity(), AppHost {
             preserveEGLContextOnPause = true
             // 4x MSAA where the device has it, else none. Without it facet edges crawl as the
             // camera moves. Tile-based GPUs resolve it on chip, so it's cheap.
-            val samples = if (BuildConfig.PERF && File(getExternalFilesDir(null), "debug-no-msaa").exists()) 0 else 4
+            val samples = when {
+                BuildConfig.PERF && File(getExternalFilesDir(null), "debug-no-msaa").exists() -> 0
+                BuildConfig.PERF && File(getExternalFilesDir(null), "debug-2x-msaa").exists() -> 2
+                else -> 4
+            }
             setEGLConfigChooser(MultisampleConfigChooser(samples))
             setRenderer(GlSurfaceRenderer(renderer))
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
