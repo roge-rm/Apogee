@@ -811,7 +811,7 @@ object Shaders {
         }
         // The flood's level at camera-relative p, from the flooded points round it, or 0.
         float floodLevel(vec3 p) {
-            const int SIDE = ${TsunamiFlood.SIDE};
+            int SIDE = textureSize(uTsunamiFlood, 0).x;
             float middle = float(SIDE - 1) * 0.5;
             vec3 d = p - uFloodCentre;
             float x = dot(d, uFloodEast) / uFloodGrid.x + middle;
@@ -846,7 +846,7 @@ object Shaders {
             if (water < 0.1) return vec2(0.0);
             float under = uSeaReach > 0.0 ? SEA_BLEND_SINK * (1.0 - smoothstep(uSeaReach * SEA_BLEND, uSeaReach, away)) : 0.0;
             // Gone toward the grid's edge.
-            float edge = max(abs(dot(p - uFloodCentre, uFloodEast)), abs(dot(p - uFloodCentre, uFloodNorth))) / (uFloodGrid.x * float(${TsunamiFlood.SIDE} - 1) * 0.5);
+            float edge = max(abs(dot(p - uFloodCentre, uFloodEast)), abs(dot(p - uFloodCentre, uFloodNorth))) / (uFloodGrid.x * float(textureSize(uTsunamiFlood, 0).x - 1) * 0.5);
             float lift = max(water - under, 0.0) * (1.0 - smoothstep(0.8, 1.0, edge));
             return lift > 0.0 ? vec2(lift, water) : vec2(0.0);
         }

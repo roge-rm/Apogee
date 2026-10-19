@@ -222,7 +222,7 @@ class TsunamiSceneTest(
     private val height = 600
 
     /** A renderer into an off-screen buffer with depth, the ground and sea round a camera, and the tsunami field. */
-    private inner class Harness(val tier: QualityTier) : AutoCloseable {
+    private inner class Harness(val tier: QualityTier, val lunarTide: Boolean = true) : AutoCloseable {
         val fbo = GL30C.glGenFramebuffers()
         val colourBuffer = GL30C.glGenRenderbuffers()
         val depthBuffer = GL30C.glGenRenderbuffers()
@@ -269,7 +269,7 @@ class TsunamiSceneTest(
         fun shoot(name: String?, camera: Vec3, rotation: Quat, time: Double, items: List<RenderItem> = emptyList(), near: Double = 10.0, waves: Boolean = true, compareLegacy: Boolean = false): Shot {
             val up = Vec3().setTo(camera).normalizeInPlace()
             val altitude = camera.length - radius - maxOf(field.elevation(up), 0.0)
-            val sea = SeaScene(terra, luna, config, tier, scope).also { s ->
+            val sea = SeaScene(terra, if (lunarTide) luna else null, config, tier, scope).also { s ->
                 s.javaClass.getDeclaredField("outerBudgetNanos").also { it.isAccessible = true }.setLong(s, Long.MAX_VALUE / 4)
             }
             val tsunamis = TsunamiScene(terra, config, tier, scope)
@@ -295,7 +295,7 @@ class TsunamiSceneTest(
             var readyAt = 0L
             while (System.nanoTime() < deadline) {
                 terrain.collect()
-                terrain.followCraft(terra, camera, altitude, scope)
+                terrain.followCraft(terra, camera, altitude, scope, tsunamis.field?.flood)
                 terrain.requestGlobe(terra, scope)
                 sea.tsunamiField = tsunamis.field
                 if (waves) sea.update(camera, time)
@@ -629,11 +629,20 @@ class TsunamiSceneTest(
      * Low land a tsunami floods further out than the waves reach: the flood grid has the model's
      * level, and the ground there is drawn at the water's height.
      */
-    @Test fun farFloodedLandIsDrawnAsWater() {
+    @Test fun farFloodedLandIsDrawnAsWater() = checkFarFlood(lunarTide = false)
+
+    internal fun checkFarFlood(lunarTide: Boolean) {
         TestGl.current()
         val e = event
         val (flooded, _) = places
-        val time = frontAt(flooded) + 240.0
+        val seaModel = com.rm.apogee.core.sea.Sea(terra, if (lunarTide) luna else null, Weather(terra, config), config.seed)
+        val sample = com.rm.apogee.core.sea.SeaSample()
+        val front = frontAt(flooded)
+        // A low lunar tide can leave the smaller event dry at the fixed tsunami-only time.
+        val time = if (lunarTide) {
+            val p = Vec3().setTo(flooded).mulInPlace(radius + field.elevation(flooded))
+            (0..(e.period / 10.0).toInt()).map { front + it * 10.0 }.maxBy { seaModel.sample(p, it, sample).tide }
+        } else front + 240.0
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         // 15 km off, inland, so the flood is past the waves (12 km on MEDIUM), and high, to look
         // down on it.
@@ -645,15 +654,14 @@ class TsunamiSceneTest(
         try {
             val scene = TsunamiScene(terra, config, QualityTier.MEDIUM, scope)
             listed(scene, camera, time)
-            val flood = scene.field?.flood
-            assertNotNull("a flood grid", flood)
+            val flood = requireNotNull(scene.field?.flood) { "a flood grid" }
             val w = Weather(terra, config)
             var wet = 0; var off = 0
-            for (j in 0 until TsunamiFlood.SIDE) for (i in 0 until TsunamiFlood.SIDE) {
-                val level = flood!!.level(i, j)
+            for (j in 0 until flood.side) for (i in 0 until flood.side) {
+                val level = flood.level(i, j)
                 if (level <= 0.0) continue
                 wet++
-                val m = (TsunamiFlood.SIDE - 1) * 0.5
+                val m = (flood.side - 1) * 0.5
                 val p = Vec3().setTo(flood.centre).addScaledInPlace(flood.east, (i - m) * flood.spacing / radius).addScaledInPlace(flood.north, (j - m) * flood.spacing / radius).normalizeInPlace()
                 if (kotlin.math.abs(w.tsunamiHeight(p, time, field.elevation(p)) - level) > 0.01) off++
             }
@@ -661,12 +669,14 @@ class TsunamiSceneTest(
             assertTrue("flooded points: $wet", wet > 10)
             assertEquals(0, off)
         } finally { scope.cancel() }
-        Harness(QualityTier.MEDIUM).use { h ->
-            val shot = h.shoot("far-flood", camera, look(camera, Vec3().setTo(flooded).mulInPlace(radius), flooded), time, near = 100.0)
+        Harness(QualityTier.MEDIUM, lunarTide = lunarTide).use { h ->
+            val shot = h.shoot(if (lunarTide) "far-flood-tide" else "far-flood", camera, look(camera, Vec3().setTo(flooded).mulInPlace(radius), flooded), time, near = 100.0)
+            val chunks = h.renderer.terrainSource.drawList().size
+            println("far-flood terrain: $chunks chunks")
             val w = Weather(terra, config)
             var lifted = 0
             val apart = ArrayList<Double>()
-            for (y in 1 until height step 2) for (x in 1 until width step 2) {
+            for (y in 1 until height) for (x in 1 until width) {
                 val p = shot.point(x, y) ?: continue
                 // Past the waves, near enough for the ground's detail to follow the flood.
                 val away = p.distanceTo(camera)
@@ -677,7 +687,9 @@ class TsunamiSceneTest(
                 val up = Vec3().setTo(p).normalizeInPlace()
                 val bed = field.elevation(up)
                 if (bed < 0.3) continue
-                val level = w.tsunamiHeight(up, time, bed)
+                val level = if (lunarTide) {
+                    seaModel.sample(Vec3().setTo(up).mulInPlace(radius + bed), time, sample).tide
+                } else w.tsunamiHeight(up, time, bed)
                 // Well inside the flood, off its edge.
                 if (level - bed < 1.0) continue
                 apart += kotlin.math.abs(drawn - level)
@@ -724,13 +736,12 @@ class TsunamiSceneTest(
         try {
             val scene = TsunamiScene(terra, config, QualityTier.MEDIUM, scope)
             listed(scene, camera, time)
-            val flood = scene.field?.flood
-            assertNotNull("a flood grid", flood)
+            val flood = requireNotNull(scene.field?.flood) { "a flood grid" }
             val w = Weather(terra, config)
             var wet = 0; var near = 0; var off = 0
-            val m = (TsunamiFlood.SIDE - 1) * 0.5
-            for (j in 0 until TsunamiFlood.SIDE) for (i in 0 until TsunamiFlood.SIDE) {
-                val x = (i - m) * flood!!.spacing; val y = (j - m) * flood.spacing
+            val m = (flood.side - 1) * 0.5
+            for (j in 0 until flood.side) for (i in 0 until flood.side) {
+                val x = (i - m) * flood.spacing; val y = (j - m) * flood.spacing
                 // Within the waves' reach, under the camera.
                 if (x * x + y * y > 12_000.0 * 12_000.0) continue
                 val p = Vec3().setTo(flood.centre).addScaledInPlace(flood.east, x / radius).addScaledInPlace(flood.north, y / radius).normalizeInPlace()
@@ -849,4 +860,10 @@ class TsunamiSceneTest(
         private val FOV = Math.toRadians(55.0)
         private const val RenderFrameFar = 250_000.0
     }
+}
+
+/** A broad flood with enough water left over land during the lunar low tide. */
+class TsunamiTideSceneTest {
+    @Test fun farFloodedLandIncludesTheLunarTide() =
+        TsunamiSceneTest(6.6).checkFarFlood(lunarTide = true)
 }

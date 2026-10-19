@@ -2023,6 +2023,7 @@ class GameSession private constructor(
                 bodyFixedCamera,
                 attractor.heightAboveTerrain(focusState.position, bodyFixedCamera),
                 terrainScope,
+                cloudScene?.takeIf { it.body === attractor }?.tsunamis?.field?.flood,
             )
             builder.requestGlobe(attractor, terrainScope)
             drawFarSurface = builder.farSurfaceNeeded

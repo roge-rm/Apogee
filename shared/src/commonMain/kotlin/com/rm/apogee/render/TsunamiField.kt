@@ -158,7 +158,7 @@ class TsunamiField(
 }
 
 /**
- * Water over low land round the camera, for the ground past the waves: [SIDE] by [SIDE] points
+ * Water over low land round the camera, for the ground past the waves: [side] by [side] points
  * [spacing] metres apart along [east] and [north] from unit, body-fixed [centre], each the water's
  * level over the datum where a tsunami floods it, as two bytes for an RG8 texture ([level]), 0
  * where it's dry. Made anew each time, so a renderer uploads it when it sees a new one.
@@ -169,11 +169,41 @@ class TsunamiFlood(
     val north: Vec3,
     val spacing: Double,
     val texels: ByteArray,
+    val side: Int = SIDE,
 ) {
     /** The level at point ([i], [j]) in metres, or 0 where it's dry. */
     fun level(i: Int, j: Int): Double {
-        val k = 2 * (j * SIDE + i)
+        val k = 2 * (j * side + i)
         return ((texels[k].toInt() and 255) * 256 + (texels[k + 1].toInt() and 255)) / PER_METRE
+    }
+
+    // Built with the field on its worker; terrain selection only reads four counts per patch.
+    private val wetCounts = run {
+        val stride = side + 1
+        IntArray(stride * stride).also { counts ->
+            for (j in 0 until side) for (i in 0 until side) {
+                val k = (j + 1) * stride + i + 1
+                counts[k] = (if (level(i, j) > 0.0) 1 else 0) +
+                    counts[k - 1] + counts[k - stride] - counts[k - stride - 1]
+            }
+        }
+    }
+
+    /** Whether a surface patch's projected bounds touch flooded samples or their neighbours. */
+    fun touches(up: Vec3, extent: Double, radius: Double): Boolean {
+        val middle = (side - 1) * 0.5
+        val x = ((up dot east) - (centre dot east)) * radius / spacing + middle
+        val y = ((up dot north) - (centre dot north)) * radius / spacing + middle
+        val reach = extent / spacing + 1.0
+        val left = kotlin.math.floor(x - reach).toInt().coerceAtLeast(0)
+        val bottom = kotlin.math.floor(y - reach).toInt().coerceAtLeast(0)
+        val right = kotlin.math.ceil(x + reach).toInt().coerceAtMost(side - 1)
+        val top = kotlin.math.ceil(y + reach).toInt().coerceAtMost(side - 1)
+        if (left > right || bottom > top) return false
+        val stride = side + 1
+        val counts = wetCounts
+        return counts[(top + 1) * stride + right + 1] - counts[bottom * stride + right + 1] -
+            counts[(top + 1) * stride + left] + counts[bottom * stride + left] > 0
     }
 
     companion object {

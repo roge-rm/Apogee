@@ -175,7 +175,7 @@ class TsunamiScene(
      */
     private fun floodAt(up: Vec3, east: Vec3, north: Vec3, time: Double): TsunamiFlood? {
         val terrain = body.terrain ?: return null
-        val side = TsunamiFlood.SIDE
+        val side = if (tier == QualityTier.LOW) TsunamiFlood.SIDE else 256
         val spacing = 2.0 * floodReach / (side - 1)
         val middle = (side - 1) * 0.5
         if (floodBeds == null || up.distanceTo(floodCentre) * body.radius > FLOOD_RECENTRE * floodReach) {
@@ -228,7 +228,7 @@ class TsunamiScene(
             if (texels == null) texels = ByteArray(2 * side * side)
             TsunamiFlood.put(texels, k, level)
         }
-        return texels?.let { TsunamiFlood(floodCentre.copy(), floodEast.copy(), floodNorth.copy(), spacing, it) }
+        return texels?.let { TsunamiFlood(floodCentre.copy(), floodEast.copy(), floodNorth.copy(), spacing, it, side) }
     }
 
     /**

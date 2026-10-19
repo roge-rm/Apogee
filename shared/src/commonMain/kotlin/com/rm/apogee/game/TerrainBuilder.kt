@@ -11,6 +11,7 @@ import com.rm.apogee.render.PlanetMesh
 import com.rm.apogee.render.QualityTier
 import com.rm.apogee.render.TerrainChunk
 import com.rm.apogee.render.TerrainSource
+import com.rm.apogee.render.TsunamiFlood
 import com.rm.apogee.render.GridMorph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +152,8 @@ class TerrainBuilder(
     private val scratch = Vec3()
 
     /** What the last choice of chunks was made from, to tell when it needn't be made again. */
+    private var flood: TsunamiFlood? = null
+    private var lastFlood: TsunamiFlood? = null
     private var lastComplete = false
     private var lastField: com.rm.apogee.core.terrain.Terrain? = null
     private var lastChanges = -1
@@ -181,7 +184,9 @@ class TerrainBuilder(
         bodyFixedPosition: Vec3,
         altitude: Double,
         scope: CoroutineScope,
+        flood: TsunamiFlood? = null,
     ) {
+        this.flood = flood
         source.follow(bodyFixedPosition)
         val field = body.terrain ?: run {
             patchReady = true
@@ -212,10 +217,11 @@ class TerrainBuilder(
         // Nothing to choose again: hardly moved, nothing built, uploaded or let go since, and the
         // last choice had everything. Saves walking the whole tree every frame on the frame thread.
         val changes = source.changes.get()
-        if (lastComplete && field === lastField && changes == lastChanges &&
+        if (lastComplete && field === lastField && flood === lastFlood && changes == lastChanges &&
             camera.distanceTo(bodyFixedPosition) < RESELECT_METRES && kotlin.math.abs(range - lastRange) < range * RESELECT_RANGE
         ) return
         lastField = field
+        lastFlood = flood
         lastChanges = changes
         lastRange = range
 
@@ -320,7 +326,10 @@ class TerrainBuilder(
         // tier. Coarser mesh over rough ground sits metres off the real surface and buries landed
         // craft.
         val deepest = if (distance < FULL_DETAIL_METRES) fullLevel(field) else maxLevel
-        val wantsSplit = key.level < deepest && distance < splitAt
+        // Flooded coast needs small facets even when the camera is far inland.
+        val floodDetail = floodTouches(key, field)
+        val wantsSplit = (key.level < deepest && distance < splitAt) ||
+            (floodDetail && size / TerrainChunk.CELLS > FLOOD_CELL_METRES && key.level < fullLevel(field))
         // Reveal one level at a time when replacing ground already on screen.
         val canSplit = key in drawnBelow || (!replacingAncestor && key !in previouslyDrawn) ||
             (key in previouslyDrawn && source.isSettled(key))
@@ -394,7 +403,14 @@ class TerrainBuilder(
         return true
     }
 
+    private fun floodTouches(key: ChunkKey, field: Terrain): Boolean {
+        val water = flood ?: return false
+        scratch.setTo(centre(key, field)).normalizeInPlace()
+        return water.touches(scratch, TerrainChunk.size(field.bodyRadius, key.level), field.bodyRadius)
+    }
+
     private fun entry(chunk: ChunkData, field: Terrain, quadrants: Int = DrawEntry.ALL_QUADRANTS): DrawEntry {
+        if (floodTouches(chunk.key, field)) return DrawEntry(chunk, quadrants)
         val parent = chunk.key.parent ?: return DrawEntry(chunk, quadrants)
         val size = TerrainChunk.size(field.bodyRadius, parent.level)
         val distance = (camera.distanceTo(centre(parent, field)) - size * 0.75).coerceAtLeast(0.0)
@@ -534,6 +550,9 @@ class TerrainBuilder(
          * 60 km, 2 km cells gave way to 29 km facets in plain sight.
          */
         const val CHUNK_CEILING_METRES = 200_000.0
+
+        /** Keeps the far flood surface above the ground between its vertices. */
+        const val FLOOD_CELL_METRES = 200.0
 
         const val WORKERS = 2
 

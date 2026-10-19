@@ -991,7 +991,7 @@ class GlRenderer(
             buffer.putBytes(flood.texels)
             GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
             GLES30.glTexImage2D(
-                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RG8, TsunamiFlood.SIDE, TsunamiFlood.SIDE, 0,
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RG8, flood.side, flood.side, 0,
                 GLES30.GL_RG, GLES30.GL_UNSIGNED_BYTE, buffer,
             )
             GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 4)
