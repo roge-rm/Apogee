@@ -75,7 +75,7 @@ android {
     buildTypes {
         release {
             optimization {
-                enable = false
+                enable = true
             }
             if (releaseStoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
@@ -98,6 +98,14 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             buildConfigField("boolean", "PERF", "true")
             matchingFallbacks += listOf("release")
+        }
+    }
+
+    // Extra on-device checks, compiled with the perf app in the same R8 pass.
+    if (providers.gradleProperty("perfVerify").isPresent) {
+        sourceSets.getByName("perf") {
+            kotlin.srcDir("src/perfValidation/kotlin")
+            manifest.srcFile("src/perfValidation/AndroidManifest.xml")
         }
     }
 
