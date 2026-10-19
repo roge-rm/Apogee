@@ -193,4 +193,31 @@ class TerrainChunkTest {
         assertTrue(Vec3(100.0, 30.0, 0.0).length - 100.0 > bound)
     }
 
+    @Test fun `drawing bounds contain ground and water through the whole morph`() {
+        val home = chunkNearHome().key
+        for (key in listOf(home, home.copy(i = home.i + 20), home.parent!!)) {
+            val chunk = TerrainChunk.build(terra, key)
+            assertTrue("built drawing bounds are finite", chunk.waterRadius.isFinite())
+            val fine = chunk.vertices!!; val coarse = chunk.coarseVertices!!
+            for (v in 0 until TerrainChunk.VERTEX_COUNT) {
+                val f = v * TerrainChunk.STRIDE_FLOATS; val c = v * TerrainChunk.COARSE_STRIDE
+                val a = Vec3(fine[f].toDouble(), fine[f + 1].toDouble(), fine[f + 2].toDouble())
+                val b = Vec3(coarse[c].toDouble(), coarse[c + 1].toDouble(), coarse[c + 2].toDouble())
+                val water = Vec3(coarse[c + 10].toDouble(), coarse[c + 11].toDouble(), coarse[c + 12].toDouble())
+                val world = b.copy().addInPlace(chunk.centre)
+                if (world.length < terra.bodyRadius) {
+                    val flooded = world.normalizeInPlace().mulInPlace(terra.bodyRadius).subInPlace(chunk.centre)
+                    assertTrue("flooded coarse chord escaped drawing sphere", flooded.length <= chunk.waterRadius + 0.1)
+                }
+                val code = fine[f + 9].let { if (it >= 3.5f) it - 4f else it }
+                val lifted = a.copy()
+                if (code >= 0.5f) lifted.addScaledInPlace(a.copy().addInPlace(chunk.centre).normalizeInPlace(), (code - 1.0) * 1000.0)
+                for (morph in listOf(0.0, 0.25, 0.75, 1.0)) for (start in listOf(a, lifted)) for (end in listOf(b, water)) {
+                    val point = start.copy().mulInPlace(1.0 - morph).addScaledInPlace(end, morph)
+                    assertTrue("ground/water escaped drawing sphere", point.length <= chunk.waterRadius + 0.1)
+                }
+            }
+        }
+    }
+
 }

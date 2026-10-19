@@ -179,6 +179,16 @@ class AshPictureTest {
                     javax.imageio.ImageIO.write(image, "png", File(out, "$name.png"))
                     println("wrote ${File(out, "$name.png").canonicalPath}")
                 }
+                renderer.debugLegacyTerrainCulling = true
+                renderer.onDrawFrame()
+                val reference = BufferUtils.createByteBuffer(width * height * 4)
+                glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, reference)
+                renderer.debugLegacyTerrainCulling = false
+                var different = 0
+                for (i in 0 until width * height) {
+                    if ((0..2).any { c -> kotlin.math.abs((data.get(i * 4 + c).toInt() and 255) - (reference.get(i * 4 + c).toInt() and 255)) > 2 }) different++
+                }
+                assertTrue("$name: $different pixels differ with terrain culling", different <= width * height / 10_000)
                 assertEquals(GL_NO_ERROR, glGetError())
                 return image
             }

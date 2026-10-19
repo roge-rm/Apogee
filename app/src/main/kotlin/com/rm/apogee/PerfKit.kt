@@ -67,7 +67,7 @@ object PerfKit {
         // making the production app debuggable or restarting a warmed-up scene.
         Thread({
             val external = context.getExternalFilesDir(null) ?: return@Thread
-            val switches = listOf("debug-no-static-scenery", "debug-no-craft-culling", "debug-no-cloud-culling", "debug-legacy-instancing", "debug-perf-passes", "debug-no-sea", "debug-no-event-items", "debug-no-cloud-items", "debug-no-tsunami-field", "debug-legacy-tsunami-terrain", "debug-no-solid-smoke")
+            val switches = listOf("debug-no-static-scenery", "debug-no-craft-culling", "debug-no-cloud-culling", "debug-legacy-instancing", "debug-perf-passes", "debug-no-sea", "debug-no-event-items", "debug-no-cloud-items", "debug-no-tsunami-field", "debug-legacy-tsunami-terrain", "debug-no-solid-smoke", "debug-freeze-tsunami-field", "debug-no-tsunami-terrain", "debug-legacy-terrain-culling")
             val profile = File(external, "debug-cpu-profile")
             var profiling = false
             var profileUntil = 0L

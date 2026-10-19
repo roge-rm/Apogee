@@ -218,6 +218,7 @@ class GameSession private constructor(
     @Volatile var debugHideEventItems = false
     @Volatile var debugHideCloudItems = false
     @Volatile var debugNoTsunamiField = false
+    @Volatile var debugFreezeTsunamiField = false
     @Volatile var debugHideSolidSmoke = false
     @Volatile var effectParticles = 0
         private set
@@ -2111,6 +2112,7 @@ class GameSession private constructor(
         if (clouds != null) {
             attractor.toBodyFixed(cameraPosition, bodyRotation, cloudCamera)
             clouds.tsunamis.debugSkipField = debugNoTsunamiField
+            clouds.tsunamis.debugFreezeField = debugFreezeTsunamiField
             clouds.update(cloudCamera, renderTime)
             clouds.warnings.update(attractor.toBodyFixed(focusState.position, bodyRotation, warnAt), renderTime, focusId)
             if (!mapMode) {

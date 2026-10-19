@@ -6,6 +6,8 @@ package com.rm.apogee.render
  * anything clever.
  */
 object Shaders {
+    internal const val SEA_BLEND_SINK = 12.0
+
     /**
      * The weather's fog, with dust counted only along the part of the way that's inside its layer:
      * [weatherFog] for a point [rel] from the camera (render space), [d] metres off. The layer's top
@@ -261,7 +263,7 @@ object Shaders {
     private const val SEA_EDGE = """
         const float SEA_RISE = 0.6;
         const float SEA_BLEND = 0.8;
-        const float SEA_BLEND_SINK = 12.0;
+        const float SEA_BLEND_SINK = $SEA_BLEND_SINK;
     """
 
     /**

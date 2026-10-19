@@ -47,6 +47,7 @@ class TsunamiScene(
     @Volatile var lastFieldMillis = 0.0
         private set
     @Volatile var debugSkipField = false
+    @Volatile var debugFreezeField = false
 
     /** The roar as last worked out: how loud, how near, and from where, body-fixed. */
     private class Roar(val loudness: Double, val closeness: Double, val from: Vec3)
@@ -67,7 +68,7 @@ class TsunamiScene(
 
     /** Works it out again when due, for a camera at body-fixed [camera]. */
     fun update(camera: Vec3, time: Double) {
-        if (!active || listing) return
+        if (!active || listing || debugFreezeField) return
         val nearDue = kotlin.math.abs(time - listedAt) >= RELIST_SECONDS || camera.distanceTo(listedFrom) >= RELIST_DISTANCE
         val allDue = allWanted && kotlin.math.abs(time - allAt) >= WORLD_RELIST_SECONDS
         if (!nearDue && !allDue) return

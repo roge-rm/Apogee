@@ -54,6 +54,9 @@ class GlRenderer(
     @Volatile var debugCpuTiming = false
     @Volatile var debugNoCloudCulling = false
     @Volatile var debugLegacyTsunamiTerrain = false
+    @Volatile var debugNoTsunamiTerrain = false
+    @Volatile var debugLegacyTerrainCulling = false
+    private val terrainVisibility = TerrainVisibility()
     private val cloudVisibility = CloudVisibility()
     private val passNanos = LongArray(PASS_NAMES.size)
     private var passFrames = 0
@@ -735,7 +738,7 @@ class GlRenderer(
 
     /** The terrain program for [world]: the tsunami one only with a tsunami near, its cheaper one on LOW. */
     private fun terrainFor(world: WorldView): ShaderProgram? = when {
-        world.tsunami == null -> terrainCalmProgram
+        world.tsunami == null || debugNoTsunamiTerrain -> terrainCalmProgram
         debugLegacyTsunamiTerrain && qualityTier == QualityTier.LOW -> legacyTerrainLowProgram
             ?: ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT_LOW, "terrain-low-legacy").also { legacyTerrainLowProgram = it }
         debugLegacyTsunamiTerrain -> legacyTerrainProgram
@@ -813,6 +816,15 @@ class GlRenderer(
 
         var shader: ShaderProgram? = null
         val now = System.nanoTime()
+        val tanY = 1.0 / nearProjection.m[5]
+        val aspect = viewportWidth.toDouble() / viewportHeight
+        // The packed field bounds the shader's interpolated wave height. Flood levels use two bytes.
+        var waterMargin = Shaders.SEA_BLEND_SINK + kotlin.math.abs(world.tide) + maxOf(1.0, world.radius * 1e-6)
+        world.tsunami?.let { field ->
+            var wave = 0.0
+            for (height in field.values) wave = maxOf(wave, kotlin.math.abs(height.toDouble()) * 0.01)
+            waterMargin += wave + TsunamiFlood.MAX_LEVEL
+        }
         val morphFocus = terrainSource.focus()
         for (entry in list) {
             val chunk = entry.chunk
@@ -824,10 +836,13 @@ class GlRenderer(
             val arrival = GridMorph.smooth(0.0, TERRAIN_MORPH_NANOS.toDouble(), (now - appeared).toDouble()).toFloat()
             if (arrival == 1f) terrainSource.markSettled(chunk.key)
             interpolatedBodyRotation.rotate(chunk.centre, scratchChunkCentre)
-            // Behind the camera by more than the chunk's size, so none of it can be on screen.
-            // Cheap, and usually half the chunks.
+            // Reject only whole spheres outside the view, including any water they may draw.
+            // The legacy path keeps the original ground-only check behind the camera.
             scratchChunkCentre.subInPlace(cameraPos)
-            if ((scratchChunkCentre dot cameraForward) < -chunk.boundingRadius) continue
+            if (debugLegacyTerrainCulling) {
+                if ((scratchChunkCentre dot cameraForward) < -chunk.boundingRadius) continue
+            } else if (!terrainVisibility.visible(scratchChunkCentre, chunk.waterRadius + waterMargin,
+                    interpolatedCameraRot, tanY, aspect)) continue
             scratchChunkCentre.addInPlace(cameraPos)
             val program = if (!debugLegacyTsunamiTerrain && tsunamiSafeGround(chunk, world.radius, world.tide))
                 terrainCalmProgram ?: tsunamiShader else tsunamiShader

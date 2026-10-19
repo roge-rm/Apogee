@@ -63,6 +63,8 @@ class ChunkData(
     @Volatile var coarseVertices: FloatArray? = null,
     /** Lower bound for every fine/coarse triangle and skirt, metres above the datum. */
     var minimumHeight: Double = Double.NEGATIVE_INFINITY,
+    /** Ground and datum-water positions, including every morph and skirt. Unknown bounds stay visible. */
+    var waterRadius: Double = Double.POSITIVE_INFINITY,
 )
 
 /** Dry even at the flood grid's maximum level, with room for the shader's float rounding. */
@@ -167,6 +169,16 @@ object TerrainChunk {
             val o = v * COARSE_STRIDE
             val x = target[o].toDouble(); val y = target[o + 1].toDouble(); val z = target[o + 2].toDouble()
             chunk.boundingRadius = maxOf(chunk.boundingRadius, kotlin.math.sqrt(x * x + y * y + z * z))
+            val wx = target[o + 10].toDouble(); val wy = target[o + 11].toDouble(); val wz = target[o + 12].toDouble()
+            chunk.waterRadius = maxOf(chunk.waterRadius, chunk.boundingRadius, kotlin.math.sqrt(wx * wx + wy * wy + wz * wz))
+            // Floods lift a coarse triangle's chord to the curved datum too.
+            val px = x + chunk.centre.x; val py = y + chunk.centre.y; val pz = z + chunk.centre.z
+            val length = kotlin.math.sqrt(px * px + py * py + pz * pz)
+            if (length < terrain.bodyRadius) {
+                val scale = terrain.bodyRadius / length
+                val fx = px * scale - chunk.centre.x; val fy = py * scale - chunk.centre.y; val fz = pz * scale - chunk.centre.z
+                chunk.waterRadius = maxOf(chunk.waterRadius, kotlin.math.sqrt(fx * fx + fy * fy + fz * fz))
+            }
         }
         chunk.minimumHeight = minOf(chunk.minimumHeight, heightLowerBound(chunk.centre, target, COARSE_STRIDE, terrain.bodyRadius))
         return chunk
@@ -206,6 +218,7 @@ object TerrainChunk {
         val vertices = FloatArray(VERTEX_COUNT * STRIDE_FLOATS)
         val cellMetres = size(radius, key.level) / CELLS
         var bound = 0.0
+        var waterBound = 0.0
 
         // No deeper than the shader can lift back up to the water.
         fun surface(index: Int): Double = radius + if (sea) kotlin.math.max(heights[index], -MAX_DEPTH_CODE) else heights[index]
@@ -219,6 +232,9 @@ object TerrainChunk {
             val z = dz[index] * r - centre.z
             vertices[base] = x.toFloat(); vertices[base + 1] = y.toFloat(); vertices[base + 2] = z.toFloat()
             bound = maxOf(bound, x * x + y * y + z * z)
+            val water = if (sea && heights[index] < 0.0) radius else r
+            val wx = dx[index] * water - centre.x; val wy = dy[index] * water - centre.y; val wz = dz[index] * water - centre.z
+            waterBound = maxOf(waterBound, wx * wx + wy * wy + wz * wz)
 
             // The normal comes from the drawn surface either side.
             val right = index + 1; val left = index - 1
@@ -285,7 +301,8 @@ object TerrainChunk {
         }
 
         return ChunkData(key, vertices, centre, kotlin.math.sqrt(bound) + drop,
-            minimumHeight = heightLowerBound(centre, vertices, STRIDE_FLOATS, radius))
+            minimumHeight = heightLowerBound(centre, vertices, STRIDE_FLOATS, radius),
+            waterRadius = kotlin.math.sqrt(maxOf(bound, waterBound)) + drop)
     }
 
     /** A supporting plane bounds triangle interiors too, including during the parent morph. */
