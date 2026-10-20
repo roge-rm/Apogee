@@ -707,10 +707,13 @@ class GameServerTest {
     fun `another player sees the same control surface deflection`() = runTest {
         val server = GameServer.default(catalog)
         val watcher = joinClient(server, backgroundScope, "Watcher")
+        val pilot = joinClient(server, backgroundScope, "Pilot")
         val plane = server.world.spawnOnSurface(
             com.rm.apogee.core.craft.StockCraft.aeroplane(catalog),
             com.rm.apogee.core.world.World.launchSites.first(),
         )
+        server.world.assignOwner(plane, pilot.clientId)
+        server.sessionNamed("Pilot")!!.controlledVessel = plane.id
         plane.control.pitch = 0.6
         plane.control.roll = -0.3
         val values = com.rm.apogee.core.world.VesselPose.Values()
@@ -731,6 +734,41 @@ class GameServerTest {
             compared++
         }
         assertTrue("expected surfaces to compare, got $compared", compared >= 3)
+    }
+
+    @Test
+    fun `switching craft and disconnecting update which human pilots hold warp`() = runTest {
+        val world = World.default(catalog)
+        val server = GameServer(world, ServerConfig(allowWarp = true))
+        val pilot = joinClient(server, backgroundScope, "Pilot")
+        val orbiter = world.vessel(VesselId(pilot.controlledVessel!!))!!
+        val body = world.attractorFor(orbiter)
+        val orbit = com.rm.apogee.core.orbit.Orbit.circular(body.radius + 250_000.0, body.gravitationalParameter)
+        orbiter.wake()
+        orbiter.body.position.setTo(orbit.position)
+        orbiter.body.linearVelocity.setTo(orbit.velocity)
+        val plane = world.spawnOnSurface(StockCraft.sparrow(catalog), World.launchSites.first { it.id == "airfield" })
+        world.assignOwner(plane, pilot.clientId)
+        plane.control.throttle = 1.0
+        plane.control.sasEnabled = true
+        server.stepOnce()
+        assertEquals("unattended aircraft doesn't hold the orbiter back", 100.0, world.maxWarp(), 0.0)
+        assertEquals("abandoned throttle released", 0.0, plane.control.throttle, 0.0)
+
+        pilot.send(Command.SwitchVessel(plane.id.raw))
+        pumpUntil(server, "at the plane's controls") { pilot.controlledVessel == plane.id.raw }
+        // A pilot in the air must still be protected from someone else's warp.
+        plane.wake()
+        plane.body.position.addScaledInPlace(plane.body.position.normalized(), 1_000.0)
+        server.stepOnce()
+        assertEquals(4.0, world.maxWarp(), 0.0)
+
+        pilot.send(Command.SwitchVessel(orbiter.id.raw))
+        pumpUntil(server, "back in orbit") { pilot.controlledVessel == orbiter.id.raw }
+        assertEquals(100.0, world.maxWarp(), 0.0)
+        server.disconnect(server.sessionNamed("Pilot")!!)
+        server.stepOnce()
+        assertEquals("a disconnected pilot no longer holds warp", 1_000_000.0, world.maxWarp(), 0.0)
     }
 
     /**

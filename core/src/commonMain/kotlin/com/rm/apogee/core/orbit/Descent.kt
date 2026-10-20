@@ -39,24 +39,51 @@ object Descent {
         // Never low enough to touch the hills or feel the air.
         if (orbit.periapsis > highest + body.atmosphereHeight) return null
 
-        val r = position.copy()
-        val v = velocity.copy()
+        if (heightAt(body, position, time, Quat(), Vec3()) <= 0.0) return null
+        return advance(body, position.copy(), velocity.copy(), time, mass, dragArea, limit)
+    }
+
+    /**
+     * Coasts an unattended craft under gravity and drag for [seconds], updating [r] and [v].
+     * Stops at its first ground or sea contact; [surfaceOffset] is the distance from its centre
+     * to its lowest contact. No thrust, lift or steering is applied.
+     */
+    fun advance(
+        body: CelestialBody,
+        r: Vec3,
+        v: Vec3,
+        time: Double,
+        mass: Double,
+        dragArea: Double,
+        seconds: Double,
+        surfaceOffset: Double = 0.0,
+    ): Impact? {
         val rotation = Quat()
         val direction = Vec3()
         val k = if (mass > 0.0) dragArea / mass else 0.0
         var t = time
-        var lastHeight = heightAt(body, r, t, rotation, direction)
-        if (lastHeight <= 0.0) return null
+        var lastHeight = heightAt(body, r, t, rotation, direction) - surfaceOffset
+        if (lastHeight <= 0.0) {
+            body.surfaceVelocityAt(r, direction).negateInPlace().addInPlace(v)
+            val speed = direction.length
+            body.toBodyFixed(r, body.rotationAt(time, rotation), direction).normalizeInPlace()
+            return Impact(time, direction.copy(), speed)
+        }
         val lastR = Vec3()
         val lastV = Vec3()
         // RK4 scratch.
         val k1r = Vec3(); val k1v = Vec3(); val k2r = Vec3(); val k2v = Vec3()
         val k3r = Vec3(); val k3v = Vec3(); val k4r = Vec3(); val k4v = Vec3()
         val tr = Vec3(); val tv = Vec3()
-        while (t - time < limit) {
+        while (t - time < seconds - 1e-9) {
             val speed = v.length.coerceAtLeast(1.0)
             // Short steps near the ground, long strides high up.
-            val h = (lastHeight / (speed * 8.0)).coerceIn(0.02, 2.0)
+            var h = minOf((lastHeight / (speed * 8.0)).coerceIn(0.02, 2.0), seconds - (t - time))
+            // A large open canopy can shed speed much faster than gravity changes the path.
+            val density = body.atmosphere?.densityAt(body.altitudeOf(r)) ?: 0.0
+            val airSpeed = body.surfaceVelocityAt(r, direction).subInPlace(v).length
+            val dragRate = 0.5 * density * k * airSpeed
+            if (dragRate > 0.0) h = minOf(h, 0.25 / dragRate)
             lastR.setTo(r); lastV.setTo(v)
             accel(body, r, v, k, k1v); k1r.setTo(v)
             tr.setTo(r).addScaledInPlace(k1r, h / 2); tv.setTo(v).addScaledInPlace(k1v, h / 2)
@@ -68,12 +95,14 @@ object Descent {
             r.addScaledInPlace(k1r, h / 6).addScaledInPlace(k2r, h / 3).addScaledInPlace(k3r, h / 3).addScaledInPlace(k4r, h / 6)
             v.addScaledInPlace(k1v, h / 6).addScaledInPlace(k2v, h / 3).addScaledInPlace(k3v, h / 3).addScaledInPlace(k4v, h / 6)
             t += h
-            val height = heightAt(body, r, t, rotation, direction)
+            val height = heightAt(body, r, t, rotation, direction) - surfaceOffset
             if (height <= 0.0) {
                 // Interpolate between the last two steps by height.
                 val f = lastHeight / (lastHeight - height)
-                r.setTo(lastR).addScaledInPlace(lastR.copy().negateInPlace().addInPlace(r), f)
-                v.setTo(lastV).addScaledInPlace(lastV.copy().negateInPlace().addInPlace(v), f)
+                tr.setTo(r).subInPlace(lastR)
+                tv.setTo(v).subInPlace(lastV)
+                r.setTo(lastR).addScaledInPlace(tr, f)
+                v.setTo(lastV).addScaledInPlace(tv, f)
                 val at = t - h + f * h
                 body.rotationAt(at, rotation)
                 body.toBodyFixed(r, rotation, direction).normalizeInPlace()

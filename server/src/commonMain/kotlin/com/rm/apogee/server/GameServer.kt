@@ -321,6 +321,8 @@ class GameServer(
      */
     private fun advanceWorld() {
         serverTick++
+        world.setHumanPilots(sessions.filter { it.connected && it.handshakeComplete }
+            .mapNotNull { session -> session.controlledVessel?.raw?.takeIf { flies(session, it) } }.toSet())
         resolveVote()
         // Reached the warp's stop time, so back to real time.
         if (!world.warpUntil.isNaN() && world.time >= world.warpUntil - 1e-6) {

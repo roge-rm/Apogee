@@ -3394,6 +3394,11 @@ class World(
                 continue
             }
 
+            if (!attended(vessel) && !isDebris(vessel) && !unattendedNeedsPhysics(vessel)) {
+                advanceUnattended(vessel, dt)
+                continue
+            }
+
             body.clearAccumulators()
             vessel.clearForces()
 
@@ -4942,15 +4947,170 @@ class World(
 
     // --- time warp --------------------------------------------------------------
 
+    // Null for standalone simulations and client prediction, which have no session roster.
+    private var humanPilots: Set<Long>? = null
+
+    /** Connected players actually at a craft's controls, supplied by the authoritative server. */
+    fun setHumanPilots(vessels: Set<Long>) {
+        humanPilots = vessels
+        for (vessel in vesselsById.values) {
+            if (vessel.id.raw in vessels || vessel.anchored) continue
+            // A lever left set by a former pilot is not a flight computer.
+            if (!attended(vessel)) vessel.control.throttle = 0.0
+            vessel.control.pitch = 0.0
+            vessel.control.yaw = 0.0
+            vessel.control.roll = 0.0
+            vessel.control.translateX = 0.0
+            vessel.control.translateY = 0.0
+            vessel.control.translateZ = 0.0
+        }
+    }
+
+    /** Physics sleep describes rest; attendance describes who is still flying a craft. */
+    private fun attended(vessel: Vessel): Boolean {
+        val pilots = humanPilots ?: return true
+        if (vessel.id.raw in pilots) return true
+        val control = vessel.control
+        return vessel.powered && (control.autoBurn || control.autoLand || control.cruise || control.keeping || control.holdDepth)
+    }
+
+    /** Solid motors cannot shut down, and water needs buoyancy, drag and pressure, not a conic. */
+    private fun unattendedNeedsPhysics(vessel: Vessel): Boolean {
+        if (vessel.solidLit) return true
+        val attractor = attractorFor(vessel)
+        if (attractor.ocean == null) return false
+        if (vessel.buoyed || vessel.afloat) return true
+        if (attractor.altitudeOf(vessel.body.position) - vessel.contactRadius > Hydrostatics.CLEAR_ABOVE) return false
+        return depthOf(vessel) >= -vessel.contactRadius
+    }
+
     /**
-     * The fastest the world can run now, as a multiple of real time: the lowest any awake craft
-     * allows (see [warpLimit]). Sleeping craft don't limit it.
+     * Runs just the unattended craft that need forces through this rails slice. This uses the
+     * ordinary physics step, including fuel, buoyancy, pressure, collisions and breakups. It does
+     * not advance the rest of the world again or turn these craft into warp limiters.
+     */
+    private fun advanceUnattendedPhysics(members: MutableSet<Long>, seconds: Double) {
+        val hostTime = time
+        val hostEnd = tickEnd
+        val hostTick = tick
+        val hostScope = scope
+        scope = members
+        try {
+            var elapsed = 0.0
+            while (elapsed < seconds - 1e-9 && members.isNotEmpty()) {
+                if (vesselsById.values.none { it.id.raw in members && !it.dormant && unattendedNeedsPhysics(it) }) {
+                    // Burnt out or settled: the remaining time can use the usual rails path.
+                    advanceOnRails(seconds - elapsed)
+                    break
+                }
+                val h = minOf(1.0 / 60.0, seconds - elapsed)
+                val firstNew = nextVesselId
+                step(h)
+                tick++
+                elapsed += h
+                // Pieces that separate in this step must finish the same slice with their parent.
+                for (vessel in vesselsById.values) if (vessel.id.raw >= firstNew) members.add(vessel.id.raw)
+                members.removeAll { VesselId(it) !in vesselsById }
+            }
+        } finally {
+            scope = hostScope
+            time = hostTime
+            tickEnd = hostEnd
+            tick = hostTick
+        }
+    }
+
+    /**
+     * Unattended craft keep moving without holding everyone else's clock back. Clear orbits use
+     * conics; descents use the same gravity-and-drag model as the landing prediction. Parked
+     * craft sleep immediately instead of waiting for suspension or damaged parts to settle.
+     */
+    private fun advanceUnattended(vessel: Vessel, seconds: Double) {
+        var elapsed = 0.0
+        while (elapsed < seconds - 1e-9) {
+            val at = time + elapsed
+            val attractor = attractorFor(vessel)
+            val body = vessel.body
+            val up = body.position.normalized()
+            val offset = lowestExtentAlong(vessel, up)
+            val rotation = attractor.rotationAt(at)
+            val fixed = attractor.toBodyFixed(body.position, rotation).normalizeInPlace()
+            val ground = attractor.surfaceRadiusInBodyFrame(fixed)
+            val gap = body.position.length - ground - offset
+            val speed = attractor.surfaceVelocityAt(body.position, Vec3()).subInPlace(body.linearVelocity).length
+            if (gap <= 0.5 && speed < RESEAT_MAX_SPEED) {
+                parkUnattended(vessel, attractor, at, ground, offset)
+                return
+            }
+
+            val floor = attractor.radius + maxOf(attractor.atmosphereHeight, attractor.terrain?.maxElevation ?: 0.0) + RAILS_CLEARANCE
+            val orbit = Orbit(body.position, body.linearVelocity, attractor.gravitationalParameter)
+            val h: Double
+            if (orbit.periapsis > floor) {
+                h = seconds - elapsed
+                coast(vessel, h, at)
+            } else {
+                // Even a fast warp must see the first contact or atmosphere entry.
+                h = minOf(RAILS_STEP, seconds - elapsed)
+                if (body.position.length > floor) {
+                    coast(vessel, h, at)
+                } else {
+                    val impact = com.rm.apogee.core.orbit.Descent.advance(attractor, body.position, body.linearVelocity,
+                        at, body.mass, forces.dragArea(vessel), h, offset)
+                    if (impact != null) {
+                        val tolerance = vessel.defs.indices.filter { !vessel.isBroken(it) }
+                            .minOfOrNull { vessel.defs[it].crashTolerance } ?: 0.0
+                        if (impact.speed > tolerance) {
+                            pendingDestruction.add(vessel.id to "crashed while unattended")
+                        } else {
+                            val surface = attractor.surfaceRadiusInBodyFrame(impact.direction)
+                            parkUnattended(vessel, attractor, impact.time, surface, offset)
+                        }
+                        return
+                    }
+                    crossInfluence(vessel, at + h)
+                }
+            }
+            elapsed += h
+            power.step(vessel, attractorFor(vessel), time + elapsed, h, rails = true)
+            vessel.powerSettledAt = time + elapsed
+            survey(vessel, attractorFor(vessel), h)
+            crossRings(vessel, attractorFor(vessel))
+            val spin = body.angularVelocity.length
+            if (spin > 1e-9) {
+                scratchWarp.setTo(body.angularVelocity).mulInPlace(1.0 / spin)
+                body.orientation.setTo(Quat.fromAxisAngle(scratchWarp, spin * h) * body.orientation).normalizeInPlace()
+            }
+        }
+    }
+
+    private fun parkUnattended(vessel: Vessel, attractor: CelestialBody, at: Double, surface: Double, offset: Double) {
+        val rotation = attractor.rotationAt(at)
+        val fixed = attractor.toBodyFixed(vessel.body.position, rotation).normalizeInPlace()
+        val sea = attractor.ocean != null && attractor.solidRadiusInBodyFrame(fixed) < attractor.radius
+        if (sea && !floatsOnSea(vessel, attractor)) {
+            pendingDestruction.add(vessel.id to "sank while unattended")
+            return
+        }
+        vessel.body.position.normalizeInPlace().mulInPlace(surface + offset)
+        vessel.touchingGround = !sea
+        vessel.buoyed = sea
+        vessel.sleep(rotation)
+        if (sea) {
+            settleAfloat(vessel, attractor)
+            followSea(vessel, attractor, waves = false)
+        } else followGround(vessel, attractor)
+    }
+
+    /**
+     * The fastest the world can run now: the lowest an awake craft with a human pilot or active
+     * flight computer allows (see [warpLimit]). Unattended and sleeping craft don't limit it.
      */
     fun maxWarp(): Double {
         var limit = WARP_RATES.last()
         for (vessel in vesselsById.values) {
             // Debris doesn't hold time back, nor a craft warping in a bubble of its own. See [advanceOnRails].
-            if (vessel.dormant || isDebris(vessel) || !inScope(vessel)) continue
+            if (vessel.dormant || isDebris(vessel) || !inScope(vessel) || !attended(vessel)) continue
             limit = minOf(limit, warpLimit(vessel))
         }
         return minOf(limit, floodWarpLimit(), quakeWarpLimit(), blizzardWarpLimit())
@@ -4965,7 +5125,7 @@ class World(
     private fun blizzardWarpLimit(): Double {
         var limit = WARP_RATES.last()
         for (vessel in vesselsById.values) {
-            if (!vessel.dormant || vessel.afloat || !inScope(vessel) || walking.walkerOf(vessel) == null) continue
+            if (!vessel.dormant || vessel.afloat || !inScope(vessel) || !attended(vessel) || walking.walkerOf(vessel) == null) continue
             val attractor = attractorFor(vessel)
             if (blizzardChill(vessel, attractor) > 0.0) return PHYSICS_WARP
             if (vessel.chill > 0.0 || blizzardDue(vessel, attractor)) limit = minOf(limit, RAILS_SLICE_WARP)
@@ -4988,7 +5148,7 @@ class World(
     private fun quakeWarpLimit(): Double {
         var limit = WARP_RATES.last()
         for (vessel in vesselsById.values) {
-            if (vessel.anchored || vessel.ridingOn != null || !inScope(vessel)) continue
+            if (vessel.anchored || vessel.ridingOn != null || !inScope(vessel) || !attended(vessel)) continue
             val grounded = if (vessel.dormant) !vessel.afloat else vessel.touchingGround
             if (!grounded || isDebris(vessel)) continue
             val attractor = attractorFor(vessel)
@@ -5014,7 +5174,7 @@ class World(
     private fun floodWarpLimit(): Double {
         var limit = WARP_RATES.last()
         for (vessel in vesselsById.values) {
-            if (!vessel.dormant || vessel.afloat || vessel.anchored || vessel.ridingOn != null || !inScope(vessel)) continue
+            if (!vessel.dormant || vessel.afloat || vessel.anchored || vessel.ridingOn != null || !inScope(vessel) || !attended(vessel)) continue
             val attractor = attractorFor(vessel)
             val sea = attractor.ocean?.sea ?: continue
             if (attractor.altitudeOf(vessel.body.position) > FLOOD_HIGHEST) continue
@@ -5042,24 +5202,24 @@ class World(
 
     private val scratchRest = Vec3()
 
-    /** The awake craft moving, and not resting (see [resting]), that holds warp lowest, or null if none holds it under the fastest rate. */
+    /** The attended craft moving, and not resting (see [resting]), that holds warp to physics. */
     fun movingWarpLimiter(): Vessel? {
         var limit = WARP_RATES.last()
         var holder: Vessel? = null
         for (vessel in vesselsById.values) {
-            if (vessel.dormant || isDebris(vessel) || !inScope(vessel) || resting(vessel)) continue
+            if (vessel.dormant || isDebris(vessel) || !inScope(vessel) || !attended(vessel) || resting(vessel)) continue
             val own = warpLimit(vessel)
             if (own < limit) { limit = own; holder = vessel }
         }
         return holder?.takeIf { limit <= PHYSICS_WARP }
     }
 
-    /** The awake craft holding warp lowest, or null if none holds it under the fastest rate. */
+    /** The attended, awake craft holding warp lowest, or null if none holds it below the fastest rate. */
     fun warpLimiter(): Vessel? {
         var limit = WARP_RATES.last()
         var holder: Vessel? = null
         for (vessel in vesselsById.values) {
-            if (vessel.dormant || isDebris(vessel) || !inScope(vessel)) continue
+            if (vessel.dormant || isDebris(vessel) || !inScope(vessel) || !attended(vessel)) continue
             val own = warpLimit(vessel)
             if (own < limit) { limit = own; holder = vessel }
         }
@@ -5117,6 +5277,7 @@ class World(
             // Longer slices only where the fastest warps are allowed; on a conic they're as exact.
             val h = minOf(railsSlice(allowed), seconds - done)
             tickEnd = time + h
+            val physics = LinkedHashSet<Long>()
             for (vessel in vesselsById.values) {
                 if (!inScope(vessel)) continue
                 val attractor = attractorFor(vessel)
@@ -5129,10 +5290,18 @@ class World(
                         restingCold(vessel, attractor, h)
                     continue
                 }
+                if (!attended(vessel) && unattendedNeedsPhysics(vessel)) {
+                    physics.add(vessel.id.raw)
+                    continue
+                }
                 // Debris in the air or near the ground can't go on rails and doesn't hold warp back,
                 // so it's lost on the way down.
                 if (isDebris(vessel) && warpLimit(vessel) <= PHYSICS_WARP) {
                     pendingDestruction.add(vessel.id to "lost on the way down")
+                    continue
+                }
+                if (!attended(vessel)) {
+                    advanceUnattended(vessel, h)
                     continue
                 }
                 val body = vessel.body
@@ -5150,6 +5319,7 @@ class World(
                     body.orientation.setTo(Quat.fromAxisAngle(scratchWarp, spin * h) * body.orientation).normalizeInPlace()
                 }
             }
+            if (physics.isNotEmpty()) advanceUnattendedPhysics(physics, h)
             time += h
             done += h
             if (pendingDestruction.isNotEmpty()) {

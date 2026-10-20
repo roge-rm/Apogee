@@ -802,5 +802,6 @@ object Protocol {
     //     lightning that knocks out electrics, and hail.
     // 35: rails coast looks more often near moons, which shifts crossing times.
     // 36: solid boosters: ResourceType.SOLID_FUEL, Engine.solid, the Flint.
-    const val VERSION = 36
+    // 37: only human pilots and active flight computers hold warp; unattended craft coast or fall.
+    const val VERSION = 37
 }
