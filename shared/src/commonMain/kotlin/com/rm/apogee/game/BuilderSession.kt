@@ -187,6 +187,9 @@ class BuilderSession(
     private val scratch = Vec3()
 
     fun start(scope: CoroutineScope) {
+        store.loadWorking().onSuccess { design ->
+            if (design != null) { builder.load(design); onEdited() }
+        }.onFailure { statusMessage = "Couldn't restore assembly: ${it.message}" }
         refreshSavedList()
         refreshAssemblies()
         camera.distance = 18.0
@@ -200,6 +203,7 @@ class BuilderSession(
     }
 
     fun stop() {
+        saveWorking()
         job?.cancel()
         job = null
         frameBus.clear()
@@ -627,6 +631,16 @@ class BuilderSession(
 
     fun rename(name: String) {
         builder.name = name
+        onEdited()
+    }
+
+    fun saveWorking(): Boolean = store.saveWorking(builder.design)
+        .onFailure { statusMessage = "Couldn't save assembly: ${it.message}" }
+        .isSuccess
+
+    fun edit(design: CraftDesign) {
+        builder.load(design)
+        selectedPartIndex = null
         onEdited()
     }
 

@@ -179,6 +179,8 @@ fun FlightScreen(
     onMapFocus: () -> Unit = {},
     onJoin: () -> Unit,
     onExit: () -> Unit,
+    onAssembly: (() -> Unit)? = null,
+    onSettings: () -> Unit = {},
     /** A tutorial finished: keep flying, or back to the list. */
     onTutorialKeep: () -> Unit = {},
     onTutorials: () -> Unit = {},
@@ -267,7 +269,7 @@ fun FlightScreen(
             return@BoxWithConstraints
         }
 
-        if (hud.exitMenuOpen) ExitMenu(hud, rewind, onExit, onClose = { hud.exitMenuOpen = false })
+        if (hud.exitMenuOpen) ExitMenu(hud, rewind, onExit, onAssembly, onSettings, onClose = { hud.exitMenuOpen = false })
 
         // --- fading when idle -----------------------------------------------
         //
@@ -652,7 +654,7 @@ class RewindActions(
  * back asks first, since everything since is lost, feats too.
  */
 @Composable
-private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, onClose: () -> Unit) {
+private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, onAssembly: (() -> Unit)?, onSettings: () -> Unit, onClose: () -> Unit) {
     var confirm by remember { mutableStateOf<String?>(null) }
     val asking = confirm
     if (asking != null) {
@@ -681,7 +683,7 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
         title = { Text(hud.telemetry.craftName.ifBlank { "Paused" }) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // Save points only in your own world. Elsewhere Start and Back show just Leave.
+                // Save points only in your own world.
                 if (hud.canRewind) MenuRow("Save point", hud.savePoint?.let { "Last at $it" }) {
                     rewind.onSavePoint(); onClose()
                 }
@@ -691,6 +693,10 @@ private fun ExitMenu(hud: HudState, rewind: RewindActions, onExit: () -> Unit, o
                 if (hud.canRewind) MenuRow("Revert to launch", enabled = hud.canRevert) {
                     confirm = "revert"
                 }
+                if (onAssembly != null) MenuRow("Vehicle assembly", if (hud.hosting) "Removes this vehicle and ends the game for everyone" else "Removes this vehicle from the game") {
+                    onClose(); onAssembly()
+                }
+                MenuRow("Settings") { onClose(); onSettings() }
                 MenuRow("Leave", if (hud.hosting) "Ends the game for everyone" else null) { onClose(); onExit() }
             }
         },

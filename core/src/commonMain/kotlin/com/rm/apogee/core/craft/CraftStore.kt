@@ -43,6 +43,15 @@ class CraftStore(private val directory: Folder) {
         SavedCraft(design.name, name, design.parts.size, directory.lastModified(name))
     }
 
+    /** The assembly floor, kept apart from the player's named craft. Empty designs are kept too. */
+    fun saveWorking(design: CraftDesign): Result<Unit> = runCatching {
+        directory.write(WORKING_FILE, format.encodeToString(design))
+    }
+
+    fun loadWorking(): Result<CraftDesign?> = runCatching {
+        directory.read(WORKING_FILE)?.let { format.decodeFromString<CraftDesign>(it) }
+    }
+
     fun load(fileName: String): Result<CraftDesign> = runCatching {
         format.decodeFromString<CraftDesign>(directory.read(fileName) ?: error("There's no $fileName"))
     }
@@ -167,6 +176,7 @@ class CraftStore(private val directory: Folder) {
     }
 
     private companion object {
+        const val WORKING_FILE = "assembly-working.json"
         const val EXTENSION = "craft"
         const val SEEDED_LEDGER = "stock-offered.txt"
 

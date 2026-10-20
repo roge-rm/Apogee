@@ -23,7 +23,14 @@ class SettingsPictureTest {
 
     @OptIn(ExperimentalComposeUiApi::class)
     @Test
-    fun pictures() {
+    fun pictures() = renderPictures(inGame = false)
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    @Test
+    fun flightPictures() = renderPictures(inGame = true)
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun renderPictures(inGame: Boolean) {
         val out = File("../build/settings-review").apply { mkdirs() }
         val settings = GameSettings(Files.createTempDirectory("settings-review").toFile())
         val screens = listOf(
@@ -33,7 +40,7 @@ class SettingsPictureTest {
         )
         for (screen in screens) {
             val scene = ImageComposeScene(screen.width, screen.height, Density(screen.density)) {
-                ApogeeTheme { SettingsScreen(settings, detectedTier = null, canScaleRender = true, controllerName = null) }
+                ApogeeTheme { SettingsScreen(settings, detectedTier = null, canScaleRender = true, controllerName = null, inGame = inGame) }
             }
             scene.render()
             // The tabs share the header's width; find it the way the screen lays it out.
@@ -44,13 +51,14 @@ class SettingsPictureTest {
             val left = (w - column) / 2f + 32f
             val tabsWidth = column - 64f - 16f
             val tabY = 24f + 48f + 8f + 24f
-            listOf("player", "controls", "display", "audio").forEachIndexed { i, tab ->
-                val at = Offset((left + tabsWidth * (i + 0.5f) / 4f) * d, tabY * d)
+            val tabs = if (inGame) listOf("controls", "display", "audio") else listOf("player", "controls", "display", "audio")
+            tabs.forEachIndexed { i, tab ->
+                val at = Offset((left + tabsWidth * (i + 0.5f) / tabs.size) * d, tabY * d)
                 scene.sendPointerEvent(PointerEventType.Press, at)
                 scene.sendPointerEvent(PointerEventType.Release, at)
                 scene.render(500_000_000L * (i + 1))
                 val image = scene.render(500_000_000L * (i + 1) + 400_000_000L)
-                val file = File(out, "settings-${screen.name}-$tab.png")
+                val file = File(out, "settings-${if (inGame) "flight-" else ""}${screen.name}-$tab.png")
                 file.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
                 assertTrue(file.length() > 0)
             }

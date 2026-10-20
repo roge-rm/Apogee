@@ -18,6 +18,31 @@ class CraftStoreTest {
     private fun store() = CraftStore(folder.newFolder("craft"))
 
     @Test
+    fun `working edits survive reopening without replacing a named save`() {
+        val dir = folder.newFolder("working")
+        val store = CraftStore(dir)
+        val original = StockCraft.sounder(catalog)
+        store.save(original).getOrThrow()
+        val edited = original.copy(stages = emptyList())
+        store.saveWorking(edited).getOrThrow()
+        val reopened = CraftStore(dir)
+        assertEquals(edited, reopened.loadWorking().getOrThrow())
+        assertEquals(original, reopened.load(reopened.list().single().fileName).getOrThrow())
+        assertEquals(1, reopened.list().size)
+    }
+
+    @Test
+    fun `empty assembly replaces the previous working vehicle`() {
+        val store = store()
+        assertEquals(null, store.loadWorking().getOrThrow())
+        store.saveWorking(StockCraft.sounder(catalog)).getOrThrow()
+        val empty = CraftDesign("Untitled", emptyList())
+        store.saveWorking(empty).getOrThrow()
+        assertEquals(empty, store.loadWorking().getOrThrow())
+        assertTrue(store.list().isEmpty())
+    }
+
+    @Test
     fun `a saved design comes back identical`() {
         val store = store()
         val original = StockCraft.starterRocket(catalog)

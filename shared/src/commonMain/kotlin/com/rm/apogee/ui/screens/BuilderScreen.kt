@@ -125,15 +125,12 @@ fun BuilderScreen(
     var showNameDialog by remember { mutableStateOf(false) }
     var savingAssembly by remember { mutableStateOf<String?>(null) }
     var confirmNew by remember { mutableStateOf(false) }
-    // Opened by its handle with something in hand, it stays out until the next pick.
-    var peek by remember { mutableStateOf(false) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight
         val density = LocalDensity.current
         val screen = with(density) { IntSize(maxWidth.roundToPx(), maxHeight.roundToPx()) }
         val carrying = session.carryPoint != null
-        val holding = session.held != null
 
         // --- the drawer or the stages, left -------------------------------------
         //
@@ -168,9 +165,8 @@ fun BuilderScreen(
             val tabName = if (horizontal) settings.builderTabHorizontal else settings.builderTabVertical
             val tab = PartTab.entries.firstOrNull { it.name == tabName } ?: PartTab.ALL
             SlidePanel(
-                // Tucked away while a part is held, carried or selected, unless it's pulled out.
-                shown = settings.builderPartsOpen && !carrying && ((!holding && session.selectedPartIndex == null) || peek),
-                onOpen = { settings.builderPartsOpen = true; peek = true },
+                shown = settings.builderPartsOpen,
+                onOpen = { settings.builderPartsOpen = true },
                 handleLabel = "Show the parts",
                 modifier = leftModifier,
                 onCovers = { session.leftInset = it },
@@ -186,21 +182,20 @@ fun BuilderScreen(
                     tileSize = if (portrait) 66.dp else 70.dp,
                     heldPartId = session.heldPartId,
                     onPick = {
-                        peek = false
                         session.selectPart(if (session.heldPartId == it) null else it)
                     },
                     carry = PaletteCarry(
-                        start = { peek = false; session.beginCarry(it) },
+                        start = { session.beginCarry(it) },
                         move = { session.carryTo(it.x, it.y) },
                         end = session::endCarry,
                     ),
-                    onClose = { settings.builderPartsOpen = false; peek = false },
+                    onClose = { settings.builderPartsOpen = false },
                     modifier = Modifier.height(paletteHeight),
                     locked = session.lockedParts(),
                     saved = session.savedAssemblies.map { (piece, file) ->
                         com.rm.apogee.ui.components.builder.SavedPiece(piece.name, piece.rootPartId, piece.parts.map { it.partId }, file)
                     },
-                    onPickSaved = { peek = false; session.holdAssembly(it) },
+                    onPickSaved = { session.holdAssembly(it) },
                     onDeleteSaved = session::deleteAssembly,
                 )
             }
@@ -263,7 +258,7 @@ fun BuilderScreen(
             HeldChip(
                 title = title,
                 picture = pictures[held.assembly.rootPartId],
-                onDrop = { peek = false; session.dropHeld() },
+                onDrop = { session.dropHeld() },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .windowInsetsPadding(WindowInsets.displayCutout)

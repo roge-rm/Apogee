@@ -365,7 +365,10 @@ class GameSession private constructor(
      */
     private var scatterStreamer: ScatterStreamer? = null
 
+    private var terrainBuilderSource: com.rm.apogee.render.TerrainSource? = null
+
     fun attachTerrain(source: com.rm.apogee.render.TerrainSource, quality: QualityTier) {
+        terrainBuilderSource = source
         // Called again whenever the GL surface is recreated. The builder already rebuilds the
         // chunks the GPU lost, so keep it; a new one would leave the old workers publishing into
         // the same source.
@@ -377,12 +380,20 @@ class GameSession private constructor(
             // behind the loading screen.
             source.releaseAllChunks()
         }
+        scatterStreamer?.stop()
+        effects = null
+        cloudScene = null
+        airlessQuakes = null
+        seaScene = null
         terrainQuality = quality
         terrainBuilder = TerrainBuilder(source, quality)
         scatterStreamer = ScatterStreamer(source.scatter, quality)
     }
 
     private var terrainQuality: QualityTier? = null
+    @Volatile private var requestedQuality: QualityTier? = null
+
+    fun requestQuality(quality: QualityTier) { requestedQuality = quality }
 
     /**
      * Whether the craft has ground under it yet. False until the first terrain patch is built, so
@@ -1524,6 +1535,13 @@ class GameSession private constructor(
     /** The craft being flown, if there is one. */
     val controlledCraft: Long? get() = client.controlledVessel
 
+    @Volatile private var launchedCraftId: Long? = null
+
+    /** The launch design stays intact when returning after staging. */
+    val assemblyDesign: CraftDesign?
+        get() = launchDesign?.takeIf { launchedCraftId != null && launchedCraftId == client.controlledVessel }
+            ?: client.controlledVessel?.let(client::vessel)?.design
+
     /** Removes the craft being flown and waits up to a second for the server to say it's gone. */
     suspend fun retire() {
         val id = client.controlledVessel ?: return
@@ -1531,6 +1549,18 @@ class GameSession private constructor(
         kotlinx.coroutines.withTimeoutOrNull(1_000) {
             while (client.vessel(id) != null) kotlinx.coroutines.delay(20)
         }
+    }
+
+    /** Wait for removal before the app saves the world and opens the editor. */
+    suspend fun takeToAssembly(): CraftDesign? {
+        val id = client.controlledVessel ?: return null
+        val design = assemblyDesign ?: return null
+        client.send(Command.RemoveVessel(id))
+        val removed = kotlinx.coroutines.withTimeoutOrNull(5_000) {
+            while (client.vessel(id) != null) kotlinx.coroutines.delay(20)
+            true
+        } ?: false
+        return design.takeIf { removed }
     }
 
     /** Takes the controls of craft [id]. */
@@ -1545,7 +1575,18 @@ class GameSession private constructor(
     /** Puts [launchDesign] on the pad once the handshake is done. */
     private suspend fun launchPendingDesign() {
         val design = launchDesign ?: return
+        val previous = client.controlledVessel
         client.send(Command.SpawnCraft(design, launchSiteId ?: World.launchSiteFor(design, catalog).id))
+        kotlinx.coroutines.withTimeoutOrNull(5_000) {
+            while (true) {
+                val id = client.controlledVessel
+                if (id != null && id != previous && client.vessel(id) != null) {
+                    launchedCraftId = id
+                    break
+                }
+                kotlinx.coroutines.delay(20)
+            }
+        }
     }
 
     /**
@@ -1668,6 +1709,9 @@ class GameSession private constructor(
      * server sends 20 motion samples a second and the renderer interpolates between the last two.
      */
     private fun buildFrame(timestampNanos: Long) {
+        requestedQuality?.let { quality ->
+            terrainBuilderSource?.let { attachTerrain(it, quality) }
+        }
         if (timeBuild) { buildMark = System.nanoTime(); buildBytesMark = allocNow() }
         itemPool.begin()
         val focusId = client.controlledVessel ?: return

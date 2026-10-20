@@ -65,6 +65,7 @@ class WorldGestures(private val app: ApogeeApp) {
 
     /** The first finger (or the mouse button) goes down at [x], [y]. */
     fun down(x: Float, y: Float, time: Long) {
+        if (!app.worldInputEnabled) return
         if (building0) {
             app.builderSession?.setViewSize(width, height)
             building.down(x, y, time)
@@ -80,6 +81,7 @@ class WorldGestures(private val app: ApogeeApp) {
 
     /** A second finger goes down: the two are at [x0], [y0] and [x1], [y1]. */
     fun secondDown(x0: Float, y0: Float, x1: Float, y1: Float) {
+        if (!app.worldInputEnabled) return
         if (building0) { building.secondDown(x0, y0, x1, y1); return }
         multiTouch = true
         spread = kotlin.math.hypot(x1 - x0, y1 - y0)
@@ -87,6 +89,7 @@ class WorldGestures(private val app: ApogeeApp) {
 
     /** One finger moves to [x], [y]. */
     fun move(x: Float, y: Float) {
+        if (!app.worldInputEnabled) return
         if (building0) { building.move(x, y); return }
         if (holdingBurn) {
             app.session?.mapDrag(x, y, width, height)
@@ -103,6 +106,7 @@ class WorldGestures(private val app: ApogeeApp) {
      * ScaleGestureDetector does), so it's measured here from their spread.
      */
     fun move(x0: Float, y0: Float, x1: Float, y1: Float, measurePinch: Boolean) {
+        if (!app.worldInputEnabled) return
         if (building0) { building.move(x0, y0, x1, y1); return }
         if (!measurePinch) return
         val now = kotlin.math.hypot(x1 - x0, y1 - y0)
@@ -117,6 +121,7 @@ class WorldGestures(private val app: ApogeeApp) {
 
     /** The last finger lifts at [x], [y]. */
     fun up(x: Float, y: Float, time: Long) {
+        if (!app.worldInputEnabled) return
         if (building0) { building.up(x, y, time); return }
         // A tap neither travelled nor lingered. The slop is generous: a finger put down to tap
         // always moves a few pixels.
@@ -151,6 +156,7 @@ class WorldGestures(private val app: ApogeeApp) {
 
     /** A pinch (or the mouse wheel) by [factor]: over 1 closer, under 1 further. */
     fun zoom(factor: Float) {
+        if (!app.worldInputEnabled) return
         if (building0) { app.builderSession?.camera?.zoomBy(factor.toDouble()); return }
         // The map's own camera in map view, not the flight view behind it.
         app.session?.let { (if (it.mapMode) it.mapCamera else it.camera).zoomBy(factor.toDouble()) }

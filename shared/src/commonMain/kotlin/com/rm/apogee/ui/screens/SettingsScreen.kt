@@ -87,9 +87,11 @@ fun SettingsScreen(
     /** Whether the window is full screen, or null where that isn't a choice. */
     fullScreen: Boolean? = null,
     onFullScreen: (Boolean) -> Unit = {},
+    inGame: Boolean = false,
 ) {
     // Not kept across visits: Settings always opens on the first tab.
-    var tab by remember { mutableStateOf(SettingsTab.PLAYER) }
+    val tabs = remember(inGame) { SettingsTab.entries.filter { !inGame || it != SettingsTab.PLAYER } }
+    var tab by remember(inGame) { mutableStateOf(if (inGame) SettingsTab.DISPLAY else SettingsTab.PLAYER) }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -116,12 +118,12 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
 
                 TabRow(
-                    selectedTabIndex = tab.ordinal,
+                    selectedTabIndex = tabs.indexOf(tab),
                     containerColor = Color.Transparent,
                     contentColor = ApogeeColors.Accent,
                     divider = { HorizontalDivider(color = Color.White.alpha(ApogeeAlpha.DIVIDER)) },
                 ) {
-                    SettingsTab.entries.forEach { candidate ->
+                    tabs.forEach { candidate ->
                         Tab(
                             selected = candidate == tab,
                             onClick = { tab = candidate },

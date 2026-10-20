@@ -186,6 +186,10 @@ class ApogeeApp(private val host: AppHost) {
     /** What joining a game hosted here asks for, or blank for anyone. */
     private var hostPassword by mutableStateOf("")
 
+    private var flightSettingsOpen by mutableStateOf(false)
+    private var flightControllerOpen by mutableStateOf(false)
+    val worldInputEnabled: Boolean get() = !flightSettingsOpen
+    private var pendingAssembly: com.rm.apogee.core.craft.CraftDesign? = null
     private var appScreen by mutableStateOf(AppScreen.MENU)
     private var detectedTier by mutableStateOf<QualityTier?>(null)
 
@@ -224,7 +228,7 @@ class ApogeeApp(private val host: AppHost) {
      * open over the flight counts as menus, so the D-pad and A work it.
      */
     fun padMode(): com.rm.apogee.input.PadMode = when {
-        appScreen == AppScreen.FLIGHT && session != null && !hudState.panelOpen && hudState.surfaceReady ->
+        appScreen == AppScreen.FLIGHT && !flightSettingsOpen && session != null && !hudState.panelOpen && hudState.surfaceReady ->
             com.rm.apogee.input.PadMode.FLIGHT
         appScreen == AppScreen.BUILDER && builderSession != null -> com.rm.apogee.input.PadMode.BUILDER
         else -> com.rm.apogee.input.PadMode.MENU
@@ -312,6 +316,8 @@ class ApogeeApp(private val host: AppHost) {
 
     /** Back in flight closes what's open over it, or brings up the flight menu. */
     private fun flightBack() {
+        if (flightControllerOpen) { flightControllerOpen = false; return }
+        if (flightSettingsOpen) { flightSettingsOpen = false; return }
         if (!hudState.closePanel()) hudState.exitMenuOpen = true
     }
 
@@ -368,7 +374,7 @@ class ApogeeApp(private val host: AppHost) {
                     }
                 }
                 androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
-                if (appScreen.needsWorldSurface && host.worldInputInCompose) WorldInputLayer(gestures)
+                if (appScreen.needsWorldSurface && host.worldInputInCompose && worldInputEnabled) WorldInputLayer(gestures)
 
                 when (appScreen) {
                     AppScreen.MENU -> {
@@ -494,6 +500,19 @@ class ApogeeApp(private val host: AppHost) {
                     )
                     AppScreen.ABOUT -> AboutScreen(onBack = ::goBack)
                     AppScreen.FLIGHT -> {
+                    if (flightSettingsOpen) {
+                        if (flightControllerOpen) com.rm.apogee.ui.screens.ControllerScreen(
+                            settings, pad, controllerName, onBack = { flightControllerOpen = false },
+                        ) else SettingsScreen(
+                            settings, detectedTier, onBack = { flightSettingsOpen = false },
+                            canScaleRender = host.canScaleRender,
+                            controllerName = controllerName,
+                            onController = { flightControllerOpen = true },
+                            fullScreen = if (host.canFullScreen) host.isFullScreen else null,
+                            onFullScreen = host::setFullScreen,
+                            inGame = true,
+                        )
+                    } else {
                     FlightScreen(
                         hud = hudState,
                         controlOpacity = settings.controlOpacity,
@@ -558,6 +577,8 @@ class ApogeeApp(private val host: AppHost) {
                         onMapFocus = ::onMapFocus,
                         onJoin = ::onJoin,
                         onExit = { navigateTo(if (tutorialFlight) AppScreen.TUTORIALS else AppScreen.PLAY) },
+                        onAssembly = if (session?.assemblyDesign != null) ::returnToAssembly else null,
+                        onSettings = { releaseKeys(); gestures.cancel(); flightSettingsOpen = true },
                         onTutorialKeep = { tutorialRun = null; hudState.tutorial = null },
                         onTutorials = { navigateTo(AppScreen.TUTORIALS) },
                         rewind = com.rm.apogee.ui.screens.RewindActions(
@@ -609,6 +630,7 @@ class ApogeeApp(private val host: AppHost) {
                     // Joined someone's game: what to fly, over the flight as it loads.
                     // hudState's flags are state, so this shows once the welcome lands.
                     session?.takeIf { it.choosingCraft && !hudState.connecting && hudState.connectionError == null }?.let { joined -> JoinCraft(joined) }
+                    }
                     }
                     AppScreen.BUILDER -> builderSession?.let { builder ->
                         // The Building tutorial looks at what's built a few times a second.
@@ -714,6 +736,10 @@ class ApogeeApp(private val host: AppHost) {
 
     fun navigateTo(target: AppScreen) {
         if (target == appScreen) return
+        if (appScreen == AppScreen.BUILDER && builderSession?.saveWorking() == false) {
+            host.toast("Couldn't save assembly. Your edits are still open.")
+            return
+        }
         val wasInWorld = appScreen.needsWorldSurface
         val wasBrowsing = appScreen == AppScreen.JOIN_GAME
         if (target !in quickMenus || careerMode) cancelQuickPreparation()
@@ -1270,7 +1296,7 @@ class ApogeeApp(private val host: AppHost) {
             return false
         }
         // Typing in chat isn't flying.
-        if (hudState.chatOpen) {
+        if (hudState.chatOpen || flightSettingsOpen) {
             releaseKeys()
             return false
         }
@@ -1378,10 +1404,23 @@ class ApogeeApp(private val host: AppHost) {
         scope.launch { current.join() }
     }
 
-    /**
-     * Removes the flown craft and goes back to the menu, only once the server has done it, or the
-     * saved world would still have it.
-     */
+    /** Removes the flown craft before saving the world and opening its design. */
+    private fun returnToAssembly() {
+        val current = session ?: return
+        scope.launch {
+            val design = current.takeToAssembly()
+            if (session !== current) return@launch
+            if (design == null) {
+                host.toast("Couldn't remove the vehicle. Try again.")
+                return@launch
+            }
+            pendingAssembly = design
+            tutorialBuild = false
+            tutorialRun = null
+            navigateTo(AppScreen.BUILDER)
+        }
+    }
+
     private fun onRetire() {
         val current = session ?: return
         scope.launch {
@@ -1528,7 +1567,11 @@ class ApogeeApp(private val host: AppHost) {
             builder.start(scope)
             builderSession = builder
             if (tutorialBuild) builder.clear()
-            else pendingShared?.let { builder.openShared(it) }
+            else {
+                pendingShared?.let { builder.openShared(it) }
+                pendingAssembly?.let { builder.edit(it); builder.saveWorking() }
+            }
+            pendingAssembly = null
             pendingShared = null
         } else {
             flyingSolo = pendingMode is SessionMode.Solo
@@ -1831,6 +1874,8 @@ class ApogeeApp(private val host: AppHost) {
         // Before tearing the session down. A tutorial's world isn't kept.
         if (session != null && !tutorialFlight) saveSoloWorld()
 
+        flightSettingsOpen = false
+        flightControllerOpen = false
         session?.stop(); session = null
         stopHostingInBackground()
         builderSession?.stop(); builderSession = null
@@ -2023,6 +2068,11 @@ class ApogeeApp(private val host: AppHost) {
                     padTarget,
                 )
                 session?.let { current ->
+                    val quality = settings.qualityOverride ?: detectedTier
+                    if (quality != null) {
+                        glRenderer.qualityChoice = settings.qualityOverride
+                        current.requestQuality(quality)
+                    }
                     current.steeringStyle = settings.steeringStyle
                     hudState.steerByScreen = current.steerByScreen
                     debugPerformance(glRenderer, current)
@@ -2184,6 +2234,7 @@ class ApogeeApp(private val host: AppHost) {
      * backgrounded app and a closed tab is gone. In flight it's taken between ticks.
      */
     fun hidden() {
+        builderSession?.saveWorking()
         session?.let { running ->
             running.hiddenFromView = true
             if (running.hostingOthers) hostInBackground(running)

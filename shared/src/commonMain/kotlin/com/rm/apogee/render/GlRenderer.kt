@@ -108,6 +108,8 @@ class GlRenderer(
         line
     }
 
+    @Volatile var qualityChoice: QualityTier? = null
+    private var detectedQuality = QualityTier.MEDIUM
     @Volatile var qualityTier: QualityTier = QualityTier.MEDIUM
         private set
 
@@ -309,8 +311,9 @@ class GlRenderer(
 
     /** A GL context exists, new or made again, so everything's built for it. On the GL thread. */
     fun onSurfaceCreated() {
-        qualityTier = detectTier()
-        onTierDetected(qualityTier)
+        detectedQuality = detectTier()
+        qualityTier = qualityChoice ?: detectedQuality
+        onTierDetected(detectedQuality)
 
         GLES30.glClearColor(0.01f, 0.012f, 0.03f, 1f)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
@@ -356,6 +359,7 @@ class GlRenderer(
     }
 
     fun onDrawFrame() {
+        qualityTier = qualityChoice ?: detectedQuality
         val now = System.nanoTime()
         if (lastDrawNanos != 0L) lastFrameTimeNanos.set(now - lastDrawNanos)
         lastDrawNanos = now
