@@ -31,11 +31,11 @@ android {
         targetSdk = 37
         // Two APKs a release: 64-bit, and with -Parm32 a 32-bit one for tablets like the Fire HD 8.
         // A store installs the highest versionCode the device can run, so the 64-bit one is
-        // higher: the release number (the 5) times ten, plus 2 for 64-bit and 1 for 32-bit. Bump
+        // higher: the release counter times ten, plus 2 for 64-bit and 1 for 32-bit. Bump
         // the release number, not the code. Joining a server is decided by Protocol.VERSION and
         // the part catalogue's hash, which move on their own.
-        versionCode = 10 * 10 + if (arm32) 1 else 2
-        versionName = "0.10.1"
+        versionCode = 11 * 10 + if (arm32) 1 else 2
+        versionName = "0.10.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
