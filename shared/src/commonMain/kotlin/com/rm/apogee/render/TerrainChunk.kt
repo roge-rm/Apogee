@@ -142,7 +142,8 @@ object TerrainChunk {
                 for (k in along * half until along * half + half) {
                     val top0 = edge[k]; val top1 = edge[k + 1]
                     val low0 = skirtBase + k; val low1 = skirtBase + k + 1
-                    list += top0; list += low0; list += top1
+                    // A lower vertex provokes each face, carrying the flat skirt flag.
+                    list += top1; list += top0; list += low0
                     list += top1; list += low0; list += low1
                     list += top0; list += top1; list += low0
                     list += top1; list += low1; list += low0

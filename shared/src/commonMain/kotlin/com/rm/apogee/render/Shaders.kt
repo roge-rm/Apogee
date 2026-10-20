@@ -925,8 +925,8 @@ object Shaders {
         out vec3 vViewDir;
         out float vDistance;
         out vec3 vPosition;
-        // Nonzero inside a skirt triangle, plus the ground normal to light it by.
-        out float vSkirt;
+        // Constant across a skirt triangle, including its upper lip, with its ground normal.
+        flat out float vSkirt;
         out vec3 vGroundNormal;
         // A tsunami's seconds since its crest and whiteness, for its foam (see TSUNAMI_FOAM), and
         // its period.
@@ -1060,7 +1060,7 @@ object Shaders {
         in vec3 vViewDir;
         in float vDistance;
         in vec3 vPosition;
-        in float vSkirt;
+        flat in float vSkirt;
         in vec3 vGroundNormal;
         in vec2 vTsunami;
         flat in float vTsunamiPeriod;
