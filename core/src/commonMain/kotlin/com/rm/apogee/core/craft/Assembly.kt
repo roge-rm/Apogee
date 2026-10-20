@@ -45,6 +45,40 @@ object Assemblies {
     class Attached(val design: CraftDesign, val added: List<Int>)
 
     /**
+     * Older builder copies all named the first symmetric parent. Repair only joins whose recorded
+     * nodes don't meet, and only when another parent's free node meets the existing part exactly.
+     * Positions, rotations and stages stay as saved.
+     */
+    fun repairSymmetricParents(design: CraftDesign, catalog: PartCatalog): CraftDesign {
+        val parts = design.parts.toMutableList()
+        var changed = false
+        for (i in parts.indices) {
+            val child = parts[i]
+            val parent = parts.getOrNull(child.parentIndex) ?: continue
+            if (parent.symmetryGroup < 0) continue
+            val own = catalog[child.partId]?.allAttachNodes?.firstOrNull { it.id == child.ownNodeId } ?: continue
+            val mount = Attachment.resolve(i, child, own)
+            fun meets(node: OpenNode): Boolean = node.position.approxEquals(mount.position, NODE_MATCH) &&
+                (node.direction dot mount.direction) < -1.0 + NODE_MATCH && Attachment.compatible(node, own)
+            val parentDef = catalog[parent.partId] ?: continue
+            val recorded = (parentDef.allAttachNodes + parentDef.quarterNodes).firstOrNull { it.id == child.parentNodeId }
+            if (recorded != null && meets(Attachment.resolve(child.parentIndex, parent, recorded))) continue
+            val below = design.subtreeOf(i).toSet()
+            val matches = parts.indices.filter { it !in below && parts[it].symmetryGroup == parent.symmetryGroup && parts[it].partId == parent.partId }
+                .flatMap { index ->
+                    (parentDef.allAttachNodes + parentDef.quarterNodes).distinctBy { it.id }
+                        .map { Attachment.resolve(index, parts[index], it) }
+                }.filter { node -> meets(node) && parts.indices.none { other ->
+                    other != i && parts[other].parentIndex == node.partIndex && parts[other].parentNodeId == node.node.id
+                } }
+            val target = matches.singleOrNull() ?: continue
+            parts[i] = child.copy(parentIndex = target.partIndex, parentNodeId = target.node.id)
+            changed = true
+        }
+        return if (changed) design.copy(parts = parts) else design
+    }
+
+    /**
      * Part [index] and everything below it, as an assembly. The design isn't changed. Null if
      * [index] isn't in it.
      */
@@ -89,8 +123,8 @@ object Assemblies {
     }
 
     /**
-     * Puts [assembly] on [target], copied by [symmetry] on a surface join, like a single part. Null
-     * if it won't go.
+     * Puts [assembly] on [target], copied by [symmetry] on a surface join or onto matching nodes
+     * of symmetric parents. Null if the complete set won't fit.
      */
     fun attach(
         design: CraftDesign,
@@ -110,13 +144,14 @@ object Assemblies {
             ?: return null
         val placement = Attachment.solve(def, mountNode, target, assembly.parts[0].turn)
 
-        // Symmetry only applies when one side of the join is a surface mount (either side), since
-        // on a stack join the copies would pile up.
+        // A central stack joint takes one part. A stack joint on a symmetric booster continues
+        // that symmetry onto the other boosters instead of stacking copies on the selected one.
+        val group = design.parts.getOrNull(target.partIndex)?.symmetryGroup ?: -1
+        val parents = if (group >= 0) design.parts.indices.filter { design.parts[it].symmetryGroup == group }.toSet()
+            else setOf(target.partIndex)
+        val followParents = parents.size > 1 && symmetry.count > 1
         val surfaceJoin = target.kind == AttachNodeKind.SURFACE || mountNode.kind == AttachNodeKind.SURFACE
-        val count = if (surfaceJoin) symmetry.count else 1
-        // The node each copy hangs from. Radial copies record the original's node; a mirrored copy
-        // records its own, so that node stops showing as open.
-        val targets = ArrayList<OpenNode>()
+        val count = if (surfaceJoin || followParents) symmetry.count else 1
         val copies: List<(Attachment.Placement) -> Attachment.Placement> = when {
             count <= 1 -> listOf { it }
             design.orientation == CraftOrientation.HORIZONTAL -> {
@@ -125,13 +160,6 @@ object Assemblies {
                 if (mirrored.position.distanceTo(placement.position) < CENTRELINE) {
                     listOf { it }
                 } else {
-                    val mirrorTarget = Attachment.openNodes(design, catalog).firstOrNull {
-                        it.partIndex == target.partIndex && it.position.distanceTo(
-                            Vec3(-target.position.x, target.position.y, target.position.z)
-                        ) < CENTRELINE
-                    }
-                    targets.add(target)
-                    targets.add(mirrorTarget ?: target)
                     listOf({ it }, { Attachment.mirror(it) })
                 }
             }
@@ -139,6 +167,29 @@ object Assemblies {
                 val step = 2.0 * Math.PI / count
                 (0 until count).map { i -> spun(Quat.fromAxisAngle(Vec3.unitY(), step * i)) }
             }
+        }
+
+        val open = Attachment.openNodes(design, catalog)
+        val targets = ArrayList<OpenNode>()
+        for (copy in copies) {
+            // Radial surface copies around one central part share the chosen mount, including
+            // placements between its catalogued nodes. Preserve that surface-mount convention.
+            if (!followParents && design.orientation == CraftOrientation.VERTICAL) {
+                targets.add(target)
+                continue
+            }
+            val point = copy(Attachment.Placement(target.position, Quat.identity())).position
+            val tip = copy(Attachment.Placement(target.position.copy().addInPlace(target.direction), Quat.identity())).position
+            val direction = tip.subInPlace(point).normalizeInPlace()
+            val counterpart = open.firstOrNull { node ->
+                node.partIndex in parents && targets.none { it.partIndex == node.partIndex && it.node.id == node.node.id } &&
+                    node.position.approxEquals(point, NODE_MATCH) && (node.direction dot direction) > 1.0 - NODE_MATCH &&
+                    Attachment.compatible(node, mountNode) && Attachment.accepts(def, node, design.orientation)
+            }
+            // Surface symmetry on one central part can land between its catalogued nodes (3x on
+            // a four-sided tank, for example). Symmetric branches must each offer a real free node.
+            if (counterpart == null && followParents) return null
+            targets.add(counterpart ?: target)
         }
 
         // Each piece where it lands, before copying.
@@ -175,8 +226,8 @@ object Assemblies {
                     part.copy(
                         position = at.position,
                         rotation = at.rotation,
-                        parentIndex = if (k == 0) target.partIndex else base + part.parentIndex,
-                        parentNodeId = if (k == 0) (targets.getOrNull(c) ?: target).node.id else part.parentNodeId,
+                        parentIndex = if (k == 0) targets[c].partIndex else base + part.parentIndex,
+                        parentNodeId = if (k == 0) targets[c].node.id else part.parentNodeId,
                         ownNodeId = if (k == 0) mountNode.id else part.ownNodeId,
                         symmetryGroup = groupOf[k],
                         // A reflection turns the other way.
@@ -239,6 +290,9 @@ object Assemblies {
 
     /** Metres within which a reflected part counts as landing on itself. */
     private const val CENTRELINE = 0.05
+
+    /** Tolerance for corresponding nodes after a symmetry transform, in metres or cosine. */
+    private const val NODE_MATCH = 1e-5
 }
 
 /** This design with only the parts in [keep], in that order, parents and stages renumbered. */

@@ -39,7 +39,7 @@ class CraftBuilder(
     private val catalog: PartCatalog,
     initial: CraftDesign = CraftDesign("Untitled", emptyList()),
 ) {
-    var design: CraftDesign = initial
+    var design: CraftDesign = Assemblies.repairSymmetricParents(initial, catalog)
         private set
 
     /**
@@ -212,7 +212,7 @@ class CraftBuilder(
     }
 
     fun load(loaded: CraftDesign) {
-        mutate { loaded }
+        mutate { Assemblies.repairSymmetricParents(loaded, catalog) }
     }
 
     /** Rebuilds staging from the structure. See [autoStage]. */
