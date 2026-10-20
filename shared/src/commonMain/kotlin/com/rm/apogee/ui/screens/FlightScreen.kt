@@ -122,9 +122,8 @@ fun FlightScreen(
     /** Steer by a craft, or -1 for none. */
     onTarget: (Long) -> Unit = {},
     /** The worlds' names on the map, placed on a screen this wide and high. */
-    mapLabels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel> = { _, _ -> emptyList() },
-    /** Warp to a mark on the map, by universe time. */
-    onWarpToMark: (Double, String) -> Unit = { _, _ -> },
+    mapLabels: (Float, Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel> = { _, _, _ -> emptyList() },
+    onMapSelect: (String) -> Unit = {},
     /** Allows or refuses someone's warp request, by its id. */
     onWarpAnswer: (Int, Boolean) -> Unit = { _, _ -> },
     onToggleBrakes: () -> Unit,
@@ -310,7 +309,7 @@ fun FlightScreen(
         val alpha = if (flicker > 0.05f && (flicker * STRIKE_FLICKERS).toInt() % 2 == 0) faded * 0.25f else faded
         if (flicker > 0f) Box(Modifier.fillMaxSize().background(Color.White.alpha(0.8f * flicker * flicker)))
 
-        if (hud.mapMode) MapNames(mapLabels, onWarpToMark)
+        if (hud.mapMode) MapNames(mapLabels, onMapSelect)
         // With a controller, where A picks.
         if (hud.mapMode && hud.padActive) {
             androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
@@ -1034,19 +1033,29 @@ private fun CrashCard(
 
 /** The worlds' names next to their marks on the map, placed afresh ten times a second. */
 @Composable
-private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>, onWarpTo: (Double, String) -> Unit) {
+private fun MapNames(labels: (Float, Float, Float) -> List<com.rm.apogee.game.GameSession.MapLabel>, onSelect: (String) -> Unit) {
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var shown by remember { mutableStateOf(emptyList<com.rm.apogee.game.GameSession.MapLabel>()) }
     LaunchedEffect(size) {
         // Every frame, so they stay on what they mark as the view turns.
         while (true) {
             androidx.compose.runtime.withFrameNanos { }
-            if (size.width > 0) shown = labels(size.width.toFloat(), size.height.toFloat())
+            if (size.width > 0) shown = labels(size.width.toFloat(), size.height.toFloat(), density)
         }
     }
     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
         MapIcons(shown)
         for (label in shown) {
+            if (label.selectionRadius > 0f) {
+                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    drawCircle(ApogeeColors.Accent, label.selectionRadius,
+                        androidx.compose.ui.geometry.Offset(label.x, label.y),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+                }
+                continue
+            }
+            val pick = if (label.selectionKey.isNotEmpty()) Modifier.clickable { onSelect(label.selectionKey) } else Modifier
             // Whose it is, beside another player's craft or base, in their colour.
             if (label.icon != null) {
                 if (label.name.isNotEmpty()) Text(
@@ -1057,7 +1066,7 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
                     modifier = Modifier
                         .offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 12, label.y.toInt() - 8) }
                         .background(Color.Black.alpha(0.55f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 4.dp),
+                        .then(pick).padding(horizontal = 4.dp, vertical = 6.dp),
                 )
                 continue
             }
@@ -1069,6 +1078,7 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
                         .offset { androidx.compose.ui.unit.IntOffset(label.x.toInt(), label.y.toInt()) }
                         .offset(-PLACE_DOT / 2, -PLACE_DOT / 2)
                         .size(PLACE_DOT)
+                        .then(pick)
                         .background(Color.Black.alpha(0.6f), androidx.compose.foundation.shape.CircleShape)
                         .padding(1.dp)
                         .then(
@@ -1079,7 +1089,7 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
                 continue
             }
             label.mark?.let { mark ->
-                MarkTag(label, mark, onWarpTo)
+                MarkTag(label) { onSelect(label.selectionKey) }
                 continue
             }
             Text(
@@ -1087,7 +1097,7 @@ private fun MapNames(labels: (Float, Float) -> List<com.rm.apogee.game.GameSessi
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.alpha(ApogeeAlpha.BODY),
                 maxLines = 1,
-                modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) },
+                modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) }.then(pick).padding(vertical = 6.dp),
             )
         }
     }
@@ -1223,66 +1233,14 @@ private fun MapIcons(labels: List<com.rm.apogee.game.GameSession.MapLabel>) {
 /** How big a map icon is on screen. */
 private val MAP_ICON = 14.dp
 
-/** A mark on the path: its tag, and picked, what it says and a warp to it. */
+/** Path event labels select the same card as their markers. */
 @Composable
-private fun MarkTag(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.rm.apogee.game.PathMark, onWarpTo: (Double, String) -> Unit) {
-    val rgb = com.rm.apogee.game.GameSession.markColour(mark.kind)
-    val colour = Color(rgb[0], rgb[1], rgb[2])
-    val offset = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) }
-    if (!label.picked) {
-        Text(label.name, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = colour, maxLines = 1, modifier = offset)
-        return
-    }
-    Row(
-        Modifier
-            .keptOnScreen(label.x.toInt() + 10, label.y.toInt() - 20)
-            .clip(RoundedCornerShape(Dimens.CornerTight))
-            .background(Color.Black.alpha(0.7f))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(markSays(label, mark), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = colour, maxLines = 1)
-        Text(com.rm.apogee.ui.components.formatDuration(label.inSeconds), style = MaterialTheme.typography.labelSmall, color = ApogeeColors.Data, maxLines = 1)
-        if (label.inSeconds > 60.0) {
-            Text(
-                "WARP TO",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Dimens.CornerTight))
-                    .background(Color.White.alpha(ApogeeAlpha.CONTROL_FILL))
-                    .clickable { onWarpTo(mark.time, markSays(label, mark)) }
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-            )
-        }
-    }
-}
-
-/** Placed at [x], [y] in its parent, moved in from the edges so all of it shows. */
-private fun Modifier.keptOnScreen(x: Int, y: Int) = layout { measurable, constraints ->
-    val placed = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
-    val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placed.width
-    val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placed.height
-    layout(width, height) {
-        placed.place(x.coerceIn(0, maxOf(0, width - placed.width)), y.coerceIn(0, maxOf(0, height - placed.height)))
-    }
-}
-
-/** What a picked mark says, after its [tag]: a height, a distance, a speed or an angle. */
-private fun markSays(label: com.rm.apogee.game.GameSession.MapLabel, mark: com.rm.apogee.game.PathMark): String {
-    val tag = label.name
-    return tag + when (mark.kind) {
-        com.rm.apogee.game.MarkKind.AP, com.rm.apogee.game.MarkKind.PE ->
-            if (mark.height < 0.0) " under ground" else " " + com.rm.apogee.ui.components.formatDistance(mark.height)
-        com.rm.apogee.game.MarkKind.ENTER, com.rm.apogee.game.MarkKind.LEAVE -> " " + label.world.uppercase()
-        com.rm.apogee.game.MarkKind.NEAR -> " " + com.rm.apogee.ui.components.formatDistance(mark.extra)
-        com.rm.apogee.game.MarkKind.LAND -> if (mark.extra.isNaN()) "" else " ${mark.extra.roundToInt()} m/s"
-        com.rm.apogee.game.MarkKind.AN, com.rm.apogee.game.MarkKind.DN -> " %.1f°".format(mark.extra * 180.0 / kotlin.math.PI)
-        com.rm.apogee.game.MarkKind.BURN, com.rm.apogee.game.MarkKind.AIR -> ""
-    }
+private fun MarkTag(label: com.rm.apogee.game.GameSession.MapLabel, onSelect: () -> Unit) {
+    val rgb = com.rm.apogee.game.GameSession.markColour(label.mark!!.kind)
+    Text(label.name, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+        color = Color(rgb[0], rgb[1], rgb[2]), maxLines = 1,
+        modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(label.x.toInt() + 10, label.y.toInt() - 20) }
+            .clickable(onClick = onSelect).padding(vertical = 6.dp))
 }
 
 /** How big a found place's dot is on the map. */

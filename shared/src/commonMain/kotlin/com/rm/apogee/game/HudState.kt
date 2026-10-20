@@ -68,6 +68,8 @@ class HudState {
     var connecting: Boolean by mutableStateOf(true)
     var connectionError: String? by mutableStateOf(null)
 
+    var mapSelection by mutableStateOf(MapSelection())
+
     /**
      * Whether there's ground under the craft yet. Separate from [connecting]: one waits on the
      * server, the other on this device.

@@ -4,7 +4,7 @@ import com.rm.apogee.game.BuilderGestures
 
 /**
  * Touches on the world's surface, the same on every platform. In flight a drag turns the camera
- * and a pinch zooms; on the map a tap plans a burn and a finger on the burn drags it; in the
+ * and a pinch zooms; on the map a tap selects an object and a finger on the burn drags it; in the
  * assembly building [BuilderGestures] has them. The host feeds its own events in, in pixels, with
  * times in milliseconds.
  */

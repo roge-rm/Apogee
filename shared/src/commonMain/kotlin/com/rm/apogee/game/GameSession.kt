@@ -169,6 +169,7 @@ class GameSession private constructor(
 
     /** Whether the map view is showing. */
     @Volatile var mapMode: Boolean = false
+        set(value) { field = value; if (!value) dismissMapSelection() }
 
     /**
      * Local physics for the flown craft, so the throttle responds on the same frame. The server
@@ -1161,7 +1162,6 @@ class GameSession private constructor(
     suspend fun warpTo(time: Double, label: String = "") {
         val until = time - BURN_WARP_LEAD
         if (until > lastRenderTime + 5.0) client.send(Command.WarpTo(until, label))
-        mapPicked = null
     }
 
     /** Allows or refuses someone's warp request. */
@@ -1851,7 +1851,7 @@ class GameSession private constructor(
             }
             otherCraft(focusId, attractor, renderTime, lines, icons)
             systemOrbits(attractor, renderTime, pivot, reach, lines, icons)
-            icons += MapIcon(IconKind.CRAFT, focusState.position.copy(), CRAFT_COLOR, heading = Vec3().setTo(focusState.velocity).subInPlace(attractor.surfaceVelocityAt(focusState.position, Vec3()).takeIf { !free } ?: Vec3()))
+            icons += MapIcon(IconKind.CRAFT, focusState.position.copy(), CRAFT_COLOR, vesselId = focusId, heading = Vec3().setTo(focusState.velocity).subInPlace(attractor.surfaceVelocityAt(focusState.position, Vec3()).takeIf { !free } ?: Vec3()))
             signalLines(focusId, focusState.position, attractor, renderTime, reach, lines, icons)
             richnessDots(attractor, renderTime, lines)
             if (mapCurrents) currentArrows(attractor, renderTime, cameraPosition, lines)
@@ -1862,7 +1862,7 @@ class GameSession private constructor(
                 val seen = other.latest ?: continue
                 if (seen.referenceBodyId != focusState.referenceBodyId) continue
                 val theirs = theirs(other)
-                icons += MapIcon(IconKind.BASE, seen.position.copy(), if (theirs) ownerColour(other) else BASE_COLOR, label = if (theirs) other.ownerName else "")
+                icons += MapIcon(IconKind.BASE, seen.position.copy(), if (theirs) ownerColour(other) else BASE_COLOR, label = if (theirs) other.ownerName else "", vesselId = other.id)
             }
             // Hurricanes on this world, as last listed.
             cloudScene?.takeIf { it.body === attractor }?.let { hurricaneIcons(it.hurricanes, attractor.rotationAt(renderTime, Quat()), attractor.radius, icons) }
@@ -1895,7 +1895,7 @@ class GameSession private constructor(
                 if (other.design.parts.singleOrNull()?.partId != com.rm.apogee.core.world.World.FLAG_PART) continue
                 val seen = other.latest ?: continue
                 if (seen.referenceBodyId != focusState.referenceBodyId) continue
-                icons += MapIcon(IconKind.FLAG, seen.position.copy(), FLAG_COLOR)
+                icons += MapIcon(IconKind.FLAG, seen.position.copy(), FLAG_COLOR, vesselId = other.id)
             }
             keepMapView(plan?.takeIf { free }, attractor, renderTime, cameraPosition, cameraRotation, reach, if (free) marks else emptyList(), pivot, craft, icons)
         } else {
@@ -2501,6 +2501,8 @@ class GameSession private constructor(
         val pivot: Vec3 = Vec3(),
         val craft: Vec3 = Vec3(),
         val icons: List<MapIcon> = emptyList(),
+        val bodyId: String = "",
+        val speeds: DoubleArray = doubleArrayOf(),
     )
 
     /** What a map icon stands for, which decides its shape. */
@@ -2586,6 +2588,7 @@ class GameSession private constructor(
         val kind: IconKind, val at: Vec3, val colour: FloatArray, val heading: Vec3? = null, val label: String = "",
         /** Drawn mirrored: a hurricane turning clockwise, in the south. */
         val mirrored: Boolean = false,
+        val vesselId: Long = -1L,
     )
 
     /** Whether [vessel] belongs to another player, not this one, the world or nobody. */
@@ -2615,21 +2618,30 @@ class GameSession private constructor(
         val colour: FloatArray? = null,
         val angle: Float = 0f,
         val mirrored: Boolean = false,
+        val selectionKey: String = "",
+        val selectionRadius: Float = 0f,
     )
 
     /** The names of the worlds the map shows, placed on a [width] x [height] screen. */
-    fun mapLabels(width: Float, height: Float): List<MapLabel> {
+    fun mapLabels(width: Float, height: Float, density: Float = 1f): List<MapLabel> {
+        mapDensity = density
         if (!mapMode) return emptyList()
         val view = mapView ?: return emptyList()
         val at = FloatArray(2)
-        val names = view.bodies.mapNotNull { (id, centre, _) ->
+        val names = (listOf(Triple(view.bodyId, Vec3(), view.radius)) + view.bodies).mapNotNull { (id, centre, _) ->
             if (centre.distanceTo(view.pivot) > view.reach * MAP_LABEL_REACH) return@mapNotNull null
-            if (hidden(view.camera, centre, view.radius)) return@mapNotNull null
+            if (id != view.bodyId && hidden(view.camera, centre, view.radius)) return@mapNotNull null
             if (!onScreen(view, centre, width, height, at)) return@mapNotNull null
             if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) return@mapNotNull null
-            MapLabel(system.body(id).displayName, at[0], at[1])
+            MapLabel(system.body(id).displayName, at[0], at[1], selectionKey = "world:$id")
         }
-        return iconLabels(view, width, height) + names + placeLabels(view, width, height) + markLabels(view, width, height, names)
+        val selected = mapSelection.selected
+        val selection = selected?.let { pick ->
+            val point = picker(view, width, height).project(pick.at)
+            point?.let { listOf(MapLabel("", it.first, it.second, picked = true,
+                selectionRadius = maxOf(18f * density, picker(view, width, height).radius(pick.at, pick.radius)))) }
+        } ?: emptyList()
+        return iconLabels(view, width, height) + names + placeLabels(view, width, height) + markLabels(view, width, height, names) + selection
     }
 
     /** The map's icons on screen, not behind the world, the craft's turned the way it's going. */
@@ -2652,7 +2664,7 @@ class GameSession private constructor(
                     angle = (kotlin.math.atan2((ahead[1] - at[1]).toDouble(), (ahead[0] - at[0]).toDouble()) * 180.0 / kotlin.math.PI).toFloat()
                 }
             }
-            out += MapLabel(icon.label, at[0], at[1], icon = icon.kind, colour = icon.colour, angle = angle, mirrored = icon.mirrored)
+            out += MapLabel(icon.label, at[0], at[1], icon = icon.kind, colour = icon.colour, angle = angle, mirrored = icon.mirrored, selectionKey = if (icon.vesselId >= 0) "craft:${icon.vesselId}" else "")
         }
         // Every mark gets its icon, even where its tag gives way to another's.
         for (m in view.marks) {
@@ -2667,20 +2679,16 @@ class GameSession private constructor(
     private fun markLabels(view: MapView, width: Float, height: Float, names: List<MapLabel>): List<MapLabel> {
         val out = ArrayList<MapLabel>()
         val at = FloatArray(2)
-        val picked = mapPicked
         val radius = view.radius
-        for (m in view.marks.sortedBy { if (picked != null && it.kind == picked.kind && kotlin.math.abs(it.time - picked.time) < MARK_SAME_SECONDS) -1 else it.kind.ordinal }) {
+        for (m in view.marks.sortedBy { if (selectedMapKey == "mark:${it.kind}:${it.bodyId}") -1 else it.kind.ordinal }) {
             if (hidden(view.camera, m.at, radius)) continue
             if (!onScreen(view, m.at, width, height, at)) continue
             if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) continue
             if (out.any { kotlin.math.hypot(it.x - at[0], it.y - at[1]) < MAP_PLACE_GAP }) continue
             // Nor on a world's name. The name is drawn to the right of its mark.
             if (names.any { kotlin.math.abs(it.y - at[1]) < MAP_PLACE_GAP / 2 && at[0] - it.x in -MAP_PLACE_GAP / 2..MAP_NAME_WIDTH }) continue
-            val chosen = picked != null && m.kind == picked.kind && kotlin.math.abs(m.time - picked.time) < MARK_SAME_SECONDS
-            out += MapLabel(m.kind.tag, at[0], at[1], mark = m, picked = chosen, inSeconds = m.time - lastRenderTime, world = system.bodies[m.bodyId]?.displayName ?: "")
+            out += MapLabel(m.kind.tag, at[0], at[1], mark = m, selectionKey = "mark:${m.kind}:${m.bodyId}", inSeconds = m.time - lastRenderTime, world = system.bodies[m.bodyId]?.displayName ?: "")
         }
-        // A picked mark that's gone (passed, or the path changed) lets go.
-        if (picked != null && out.none { it.picked }) mapPicked = null
         return out
     }
 
@@ -2698,20 +2706,17 @@ class GameSession private constructor(
         return near.length < radius * 0.999
     }
 
-    /** The mark picked on the map, to show what it says: its kind and time. */
-    @Volatile private var mapPicked: PathMark? = null
-
     /** The found places on the world below, on its near side, each clear of the ones before it. */
     private fun placeLabels(view: MapView, width: Float, height: Float): List<MapLabel> {
         val out = ArrayList<MapLabel>()
         val at = FloatArray(2)
-        for ((_, name, where) in view.places) {
+        for ((id, name, where) in view.places) {
             // Only on the side turned to the camera.
             if ((view.camera - where) dot where <= 0.0) continue
             if (!onScreen(view, where, width, height, at)) continue
             if (at[0] < 0f || at[1] < 0f || at[0] > width || at[1] > height) continue
             if (out.any { kotlin.math.hypot(it.x - at[0], it.y - at[1]) < MAP_PLACE_GAP }) continue
-            out += MapLabel(name, at[0], at[1], place = true)
+            out += MapLabel(name, at[0], at[1], place = true, selectionKey = "place:$id")
         }
         return out
     }
@@ -2744,16 +2749,19 @@ class GameSession private constructor(
         val leg = plan?.current?.segments?.firstOrNull()
         val count = if (leg != null) MAP_SAMPLES else 0
         val times = DoubleArray(count)
+        val speeds = DoubleArray(count)
         val points = Array(count) { k ->
             val t = leg!!.start + (leg.end - leg.start) * k / (MAP_SAMPLES - 1)
             times[k] = t
-            leg.stateAt(t).position
+            val state = leg.stateAt(t)
+            speeds[k] = state.velocity.length
+            state.position
         }
         val here = system.positionOf(attractor.id, time)
         val bodies = (targetBodies + system.bodies.values.filter { it.parentId == null }).filter { it.id != attractor.id }.map { b ->
             Triple(b.id, system.positionOf(b.id, time).subInPlace(here), b.radius)
         }
-        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan?.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time), marks, time, attractor.radius, pivot.copy(), craft.copy(), icons)
+        mapView = MapView(camera.copy(), rotation.copy(), times, points, plan?.burnPoint?.copy(), bodies, reach, foundPlaces(attractor, time), marks, time, attractor.radius, pivot.copy(), craft.copy(), icons, attractor.id, speeds)
     }
 
     private val mapTerrainCamera = Vec3()
@@ -2773,9 +2781,6 @@ class GameSession private constructor(
     /** Which craft the map view was last opened over, so it only frames itself once. */
     private var mapFramedFor = Long.MIN_VALUE
 
-    /** The target before the last tap on a world, craft and body, to undo it on a double tap. */
-    private var targetBeforeTap: Pair<Long, String>? = null
-
     /** What the map turns round: the craft, a world, or the target. */
     data class MapFocus(val kind: FocusKind, val bodyId: String = "", val id: Long = 0L) {
         companion object {
@@ -2784,7 +2789,7 @@ class GameSession private constructor(
         }
     }
 
-    enum class FocusKind { CRAFT, WORLD, TARGET, PLACE }
+    enum class FocusKind { CRAFT, WORLD, TARGET, PLACE, VESSEL }
 
     @Volatile var mapFocus: MapFocus = MapFocus.CRAFT
         private set
@@ -2831,6 +2836,7 @@ class GameSession private constructor(
             FocusKind.WORLD -> system.bodies[mapFocus.bodyId]?.displayName ?: mapFocus.bodyId
             FocusKind.TARGET -> client.vessel(localTarget)?.name ?: targetNameOf(localTargetBody)
             FocusKind.PLACE -> mapPlaceName
+            FocusKind.VESSEL -> client.vessel(mapFocus.id)?.name ?: "Craft"
         }
 
     private fun targetNameOf(body: String): String =
@@ -2841,6 +2847,7 @@ class GameSession private constructor(
     /** Whether [focus] can still be looked at round [attractor]: its world exists, its target is set. */
     private fun valid(focus: MapFocus, attractor: CelestialBody): Boolean = when (focus.kind) {
         FocusKind.CRAFT -> true
+        FocusKind.VESSEL -> client.vessel(focus.id)?.latest?.referenceBodyId == attractor.id
         FocusKind.WORLD -> focus.bodyId in system.bodies
         FocusKind.TARGET -> hasTarget()
         FocusKind.PLACE -> focus.bodyId == attractor.id
@@ -2849,6 +2856,7 @@ class GameSession private constructor(
     /** Where [focus] is now, around [attractor]. */
     private fun pivotOf(focus: MapFocus, attractor: CelestialBody, craft: Vec3, time: Double): Vec3 = when (focus.kind) {
         FocusKind.CRAFT -> craft.copy()
+        FocusKind.VESSEL -> client.vessel(focus.id)?.latest?.position?.copy() ?: craft.copy()
         FocusKind.PLACE -> attractor.rotationAt(time).rotate(Vec3().setTo(mapPlace).mulInPlace(attractor.radius))
         FocusKind.WORLD ->
             if (focus.bodyId == attractor.id) Vec3()
@@ -2874,6 +2882,7 @@ class GameSession private constructor(
     /** How far out to look at [focus] from, in metres. */
     private fun framingOf(focus: MapFocus, attractor: CelestialBody): Double = when (focus.kind) {
         FocusKind.CRAFT -> mapCraftSpan * 2.4
+        FocusKind.VESSEL -> MAP_LOCAL * 2.4
         FocusKind.TARGET -> MAP_LOCAL * 2.4
         FocusKind.PLACE -> mapPlaceSpan * 2.4
         FocusKind.WORLD -> {
@@ -3007,49 +3016,17 @@ class GameSession private constructor(
         return true
     }
 
-    /** The time on the path nearest [x], [y] on screen, and how far off it is, in px. */
-    private fun nearestOnPath(view: MapView, x: Float, y: Float, width: Float, height: Float): Pair<Double, Float>? {
-        val at = FloatArray(2)
-        var best = -1
-        var bestDistance = Float.MAX_VALUE
-        for (k in view.points.indices) {
-            if (!onScreen(view, view.points[k], width, height, at)) continue
-            val d = kotlin.math.hypot(at[0] - x, at[1] - y)
-            if (d < bestDistance) { bestDistance = d; best = k }
-        }
-        return if (best < 0) null else view.times[best] to bestDistance
-    }
+    private fun picker(view: MapView, width: Float, height: Float) = MapPicking(view.camera, view.rotation, width, height)
 
-    /**
-     * A second tap on the map, straight after one at much the same spot. On a world, the view turns
-     * round it (and the first tap's change of target is undone); on the craft or the world it's at,
-     * back round the craft.
-     */
+    /** The time on the visible path nearest the finger, between samples too. */
+    private fun nearestOnPath(view: MapView, x: Float, y: Float, width: Float, height: Float): Pair<Double, Float>? =
+        picker(view, width, height).path(x, y, view.points, view.times) { !hidden(view.camera, it, view.radius) }
+            ?.let { it.time to it.distance }
+
+    /** Double tap focuses the selected object; picking alone never changes the target. */
     fun mapDoubleTap(x: Float, y: Float, width: Float, height: Float) {
-        val view = mapView ?: return
-        val at = FloatArray(2)
-        // The craft, or the world it's at: back round the craft.
-        val home = listOf(view.craft, Vec3()).any { onScreen(view, it, width, height, at) && kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS }
-        if (home) {
-            mapFocus = MapFocus.CRAFT
-            return
-        }
-        for ((id, centre, _) in view.bodies) {
-            if (!onScreen(view, centre, width, height, at)) continue
-            if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
-                // The first tap changed the target. Put it back as it was.
-                targetBeforeTap?.let { (craft, body) ->
-                    terrainScope.launch {
-                        localTarget = craft
-                        localTargetBody = body
-                        pushControlsToPrediction()
-                        withControlledVessel { client.send(Command.SetTarget(it, craft, body)) }
-                    }
-                }
-                mapFocus = MapFocus(FocusKind.WORLD, id)
-                return
-            }
-        }
+        mapTap(x, y, width, height)
+        mapSelection.selected?.let { focusMapPick(it) }
     }
 
     /** A controller's pick: as a tap in the middle of a [width] x [height] screen. */
@@ -3062,8 +3039,9 @@ class GameSession private constructor(
         val view = mapView ?: return false
         val burn = view.burn ?: return false
         val at = FloatArray(2)
-        if (!onScreen(view, burn, width, height, at)) return false
-        draggingBurn = kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS
+        if (hidden(view.camera, burn, view.radius) || !onScreen(view, burn, width, height, at)) return false
+        draggingBurn = kotlin.math.hypot(at[0] - x, at[1] - y) < mapGrab
+        if (draggingBurn) selectMapObject("mark:${MarkKind.BURN}:${view.bodyId}")
         return draggingBurn
     }
 
@@ -3082,50 +3060,153 @@ class GameSession private constructor(
         terrainScope.launch { burnEdited() }
     }
 
-    /**
-     * A tap on the map: a world or a place to target it, or the path to plan a burn there or move
-     * the planned one. True if it meant something.
-     */
+    @Volatile private var mapChoices: List<MapPick> = emptyList()
+    @Volatile private var selectedMapKey: String? = null
+    @Volatile private var pathPick: MapPick? = null
+    @Volatile private var mapDensity = 1f
+    private val mapGrab: Float get() = maxOf(MAP_GRAB_PIXELS, 24f * mapDensity)
+
+    private fun mapObjects(view: MapView): List<MapPick> = buildList {
+        add(MapPick("world:${view.bodyId}", system.body(view.bodyId).displayName, MapPickKind.WORLD, Vec3(), view.bodyId, radius = view.radius))
+        for ((id, at, radius) in view.bodies) {
+            if (at.distanceTo(view.pivot) <= view.reach * MAP_LABEL_REACH && !hidden(view.camera, at, view.radius))
+                add(MapPick("world:$id", system.body(id).displayName, MapPickKind.WORLD, at, id, radius = radius))
+        }
+        for ((id, name, at) in view.places) {
+            if ((view.camera - at) dot at > 0.0)
+                add(MapPick("place:$id", if (name == UNFOUND_MARK) "Unexplored place" else name, MapPickKind.PLACE, at, view.bodyId, detail = id))
+        }
+        for (icon in view.icons) {
+            val craft = client.vessel(icon.vesselId) ?: continue
+            if (hidden(view.camera, icon.at, view.radius)) continue
+            add(MapPick("craft:${craft.id}", craft.name.ifBlank { "Debris" }, MapPickKind.CRAFT, icon.at, view.bodyId, craft.id))
+        }
+        for (mark in view.marks) {
+            if (hidden(view.camera, mark.at, view.radius)) continue
+            val name = when (mark.kind) {
+                MarkKind.AP -> "Apoapsis"; MarkKind.PE -> "Periapsis"; MarkKind.BURN -> "Planned burn"
+                MarkKind.ENTER -> "Encounter: ${system.body(mark.bodyId).displayName}"
+                MarkKind.LEAVE -> "Escape: ${system.body(mark.bodyId).displayName}"
+                MarkKind.NEAR -> "Closest approach"; MarkKind.LAND -> "Landing"
+                MarkKind.AIR -> "Atmosphere entry"; MarkKind.AN -> "Ascending node"; MarkKind.DN -> "Descending node"
+            }
+            add(MapPick("mark:${mark.kind}:${mark.bodyId}", name,
+                if (mark.kind == MarkKind.BURN) MapPickKind.BURN else MapPickKind.EVENT,
+                mark.at, mark.bodyId, time = mark.time, detail = mark.kind.tag,
+                canPlan = view.times.isNotEmpty() && mark.time in view.times.first()..view.times.last(),
+                altitude = mark.height,
+                speed = if (mark.kind == MarkKind.LAND) mark.extra else Double.NaN,
+                separation = if (mark.kind == MarkKind.NEAR) mark.extra else Double.NaN))
+        }
+    }.distinctBy { it.key }
+
+    private fun resolvedMapPick(key: String): MapPick? {
+        val view = mapView ?: return null
+        if (key != "path") return mapObjects(view).firstOrNull { it.key == key }
+        val pick = pathPick ?: return null
+        if (pick.bodyId != view.bodyId || view.times.size < 2 || pick.time !in view.times.first()..view.times.last()) return null
+        val next = view.times.indexOfFirst { it >= pick.time }.coerceAtLeast(1)
+        val f = (pick.time - view.times[next - 1]) / (view.times[next] - view.times[next - 1])
+        val at = view.points[next - 1].copy().addScaledInPlace(view.points[next] - view.points[next - 1], f)
+        return pick.copy(at = at, altitude = at.length - view.radius,
+            speed = view.speeds[next - 1] + f * (view.speeds[next] - view.speeds[next - 1]))
+    }
+
+    val mapSelection: MapSelection
+        get() {
+            if (!mapMode) return MapSelection()
+            val view = mapView ?: return MapSelection()
+            val selected = selectedMapKey?.let { resolvedMapPick(it) }
+            val choices = if (selected == null) mapChoices.mapNotNull { resolvedMapPick(it.key) } else emptyList()
+            if (selected == null) return MapSelection(choices)
+            val future = selected.time - lastRenderTime
+            val target = when (selected.kind) {
+                MapPickKind.WORLD -> localTargetBody == selected.bodyId
+                MapPickKind.PLACE -> localTargetBody == com.rm.apogee.core.world.Wonders.TARGET_PREFIX + selected.detail
+                MapPickKind.CRAFT -> localTarget == selected.vesselId
+                else -> false
+            }
+            val actions = buildList {
+                if (selected.kind in listOf(MapPickKind.WORLD, MapPickKind.PLACE, MapPickKind.CRAFT)) add(MapAction.FOCUS)
+                if ((selected.kind == MapPickKind.WORLD && selected.bodyId != view.bodyId && system.body(selected.bodyId).parentId != null) ||
+                    selected.kind == MapPickKind.PLACE || (selected.kind == MapPickKind.CRAFT && selected.vesselId != client.controlledVessel))
+                    add(if (target) MapAction.CLEAR_TARGET else MapAction.TARGET)
+                if (selected.kind == MapPickKind.CRAFT && selected.vesselId != client.controlledVessel &&
+                    client.vessel(selected.vesselId)?.let { it.owner == client.clientId && it.design.parts.singleOrNull()?.partId != World.FLAG_PART } == true) add(MapAction.FLY)
+                if (selected.canPlan && future > 1.0 && selected.kind != MapPickKind.BURN)
+                    add(if (burnReadout == null) MapAction.ADD_BURN else MapAction.MOVE_BURN)
+                if (selected.kind == MapPickKind.BURN) { add(MapAction.EDIT_BURN); add(MapAction.DELETE_BURN) }
+                if (future > BURN_WARP_LEAD + 5.0) add(MapAction.WARP)
+            }
+            val distance = (selected.at.distanceTo(view.craft) - selected.radius).coerceAtLeast(0.0)
+            return MapSelection(selected = selected, distance = distance, inSeconds = future, actions = actions)
+        }
+
+    fun dismissMapSelection() { selectedMapKey = null; mapChoices = emptyList(); pathPick = null }
+
+    fun selectMapObject(key: String) {
+        if (resolvedMapPick(key) == null) return
+        selectedMapKey = key
+        mapChoices = emptyList()
+    }
+
+    private fun focusMapPick(pick: MapPick) {
+        when (pick.kind) {
+            MapPickKind.WORLD -> mapFocus = MapFocus(FocusKind.WORLD, pick.bodyId)
+            MapPickKind.CRAFT -> mapFocus = if (pick.vesselId == client.controlledVessel) MapFocus.CRAFT else MapFocus(FocusKind.VESSEL, id = pick.vesselId)
+            MapPickKind.PLACE -> {
+                mapPlace = system.body(pick.bodyId).rotationAt(lastRenderTime).inverseRotate(pick.at).normalizeInPlace()
+                mapPlaceName = pick.name; mapPlaceSpan = MAP_LOCAL
+                mapFocus = MapFocus(FocusKind.PLACE, pick.bodyId)
+            }
+            else -> Unit
+        }
+    }
+
+    /** Actions are checked against the current view so stale cards cannot edit a vanished path. */
+    suspend fun actOnMapSelection(action: MapAction) {
+        val selection = mapSelection
+        val pick = selection.selected ?: return
+        if (action !in selection.actions) return
+        when (action) {
+            MapAction.FOCUS -> focusMapPick(pick)
+            MapAction.TARGET, MapAction.CLEAR_TARGET -> when (pick.kind) {
+                MapPickKind.WORLD -> setTarget(if (action == MapAction.CLEAR_TARGET) -1 else BODY_TARGET - targetBodies.indexOfFirst { it.id == pick.bodyId })
+                MapPickKind.PLACE -> setPlaceTarget(pick.detail)
+                MapPickKind.CRAFT -> setTarget(if (action == MapAction.CLEAR_TARGET) -1 else pick.vesselId)
+                else -> Unit
+            }
+            MapAction.ADD_BURN -> { planBurnAt(pick.time); dismissMapSelection() }
+            MapAction.MOVE_BURN -> { moveBurn(pick.time, final = true); dismissMapSelection() }
+            MapAction.EDIT_BURN -> dismissMapSelection()
+            MapAction.DELETE_BURN -> { deleteBurn(); dismissMapSelection() }
+            MapAction.WARP -> { if (pick.kind == MapPickKind.BURN) warpToBurn() else warpTo(pick.time, pick.name); dismissMapSelection() }
+            MapAction.FLY -> { flyCraft(pick.vesselId); dismissMapSelection() }
+        }
+    }
+
+    /** Select markers first, then the visible orbit, then the disk of a world. */
     fun mapTap(x: Float, y: Float, width: Float, height: Float): Boolean {
         val view = mapView ?: return false
-        val at = FloatArray(2)
-        // A mark: shows what it says, or hides it again.
-        val was = mapPicked
-        mapPicked = null
-        val radius = view.radius
-        val hit = view.marks.filter { !hidden(view.camera, it.at, radius) && onScreen(view, it.at, width, height, at) && kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS }
-            .minByOrNull { onScreen(view, it.at, width, height, at); kotlin.math.hypot(at[0] - x, at[1] - y) }
-        if (hit != null) {
-            val same = was != null && was.kind == hit.kind && kotlin.math.abs(was.time - hit.time) < MARK_SAME_SECONDS
-            if (!same) mapPicked = hit
-            return true
+        val picker = picker(view, width, height)
+        val objects = mapObjects(view)
+        val markers = objects.mapNotNull { pick ->
+            val at = picker.project(pick.at) ?: return@mapNotNull null
+            val distance = kotlin.math.hypot(at.first - x, at.second - y)
+            if (distance <= mapGrab) pick to distance else null
+        }.sortedBy { it.second }.map { it.first }
+        val hits = if (markers.isNotEmpty()) markers else {
+            val path = picker.path(x, y, view.points, view.times) { !hidden(view.camera, it, view.radius) }
+            if (path != null && path.distance <= mapGrab) {
+                val pick = MapPick("path", "Orbit point", MapPickKind.PATH, path.at, view.bodyId, time = path.time, canPlan = true)
+                pathPick = pick
+                listOf(pick)
+            } else objects.filter { it.kind == MapPickKind.WORLD && picker.sphere(x, y, it.at, it.radius) }
+                .sortedBy { it.at.distanceTo(view.camera) }.take(1)
         }
-        if (was != null) return true
-        for ((id, _, where) in view.places) {
-            if ((view.camera - where) dot where <= 0.0) continue
-            if (!onScreen(view, where, width, height, at)) continue
-            if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
-                terrainScope.launch { setPlaceTarget(id) }
-                return true
-            }
-        }
-        for ((id, centre, radius) in view.bodies) {
-            if (!onScreen(view, centre, width, height, at)) continue
-            if (kotlin.math.hypot(at[0] - x, at[1] - y) < MAP_GRAB_PIXELS) {
-                val index = targetBodies.indexOfFirst { it.id == id }
-                // The star can be looked at, not steered by.
-                if (index < 0) return true
-                // Kept, in case this turns out to be the first of a double tap.
-                targetBeforeTap = localTarget to localTargetBody
-                terrainScope.launch { setTarget(if (localTargetBody == id) -1L else BODY_TARGET - index) }
-                return true
-            }
-        }
-        val (time, off) = nearestOnPath(view, x, y, width, height) ?: return false
-        if (off > MAP_GRAB_PIXELS) return false
-        val focus = client.controlledVessel?.let { client.vessel(it) } ?: return false
-        terrainScope.launch { if (burnsOf(focus).isEmpty()) planBurnAt(time) else moveBurn(time, final = true) }
-        return true
+        selectedMapKey = hits.singleOrNull()?.key
+        mapChoices = if (hits.size > 1) hits else emptyList()
+        return hits.isNotEmpty()
     }
 
     /**
@@ -3352,7 +3433,7 @@ class GameSession private constructor(
             icons += MapIcon(
                 if (target) IconKind.TARGET else IconKind.OTHER, seen.position.copy(),
                 if (target) NEAR_COLOR else if (theirs) ownerColour(other) else OTHER_CRAFT_COLOR,
-                heading = seen.velocity.copy(), label = if (theirs) other.ownerName + whenTag else whenTag.trim(),
+                heading = seen.velocity.copy(), label = if (theirs) other.ownerName + whenTag else whenTag.trim(), vesselId = other.id,
             )
             if (target) {
                 val orbit = Orbit(seen.position.copy(), seen.velocity.copy(), attractor.gravitationalParameter, time)

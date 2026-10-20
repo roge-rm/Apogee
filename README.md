@@ -94,6 +94,12 @@ Use the x86_64 AppImage. In Desktop Mode, download it, right-click it and turn o
 
 Windows 10 or 11, 64-bit. From the [Releases](https://github.com/roge-rm/Apogee/releases) page, run `apogee-*-setup.exe`, or unzip `apogee-*-windows-x64.zip` anywhere and run `Apogee.exe`. They aren't signed, so Windows will warn you: choose **More info** and then **Run anyway**. The first time you host a game, Windows asks whether Java can use the network: allow it on private networks so others can join.
 
+## Using the map
+
+Tap a world, craft, named place or orbit event to inspect it, then choose an action from its card. You can tap anywhere on a visible world, including the one you're orbiting, or tap its label. Overlapping markers offer a choice of objects. Tap empty space or Close to dismiss the card; double-tap an object to focus the view.
+
+Tap your orbit to select a point and see its altitude, speed and countdown. Choose Add burn to open the burn editor, or Warp here to stop shortly before that point. Tapping alone doesn't change your target or add a burn.
+
 ## Playing in a browser
 
 You can play it at [hunke.ws/fdroid/play/apogee](https://hunke.ws/fdroid/play/apogee/). It's the same game, solo only, and your universes and craft are kept in the browser. It needs WebGL 2 and WebAssembly GC (Chrome or Edge 119, Firefox 120, Safari 18.2 or newer).

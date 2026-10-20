@@ -59,6 +59,9 @@ class BurnActions(
     val onWarpTo: () -> Unit = {},
     val onAutoBurn: (Boolean) -> Unit = {},
     val onAutoLand: (Boolean) -> Unit = {},
+    val onMapSelect: (String) -> Unit = {},
+    val onMapDismiss: () -> Unit = {},
+    val onMapAction: (com.rm.apogee.game.MapAction) -> Unit = {},
 )
 
 /**
@@ -78,13 +81,15 @@ fun BurnPanel(
     align: Alignment.Horizontal = Alignment.End,
     /** On the map, whether the path shown is one to plan burns on, or a course over the ground. */
     plannable: Boolean = true,
+    selection: com.rm.apogee.game.MapSelection = com.rm.apogee.game.MapSelection(),
 ) {
     Column(modifier, horizontalAlignment = align, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (mapMode) {
             window?.let { WindowChip(it) }
             when {
+                selection.selected != null || selection.choices.isNotEmpty() -> MapSelectionPanel(selection, actions)
                 burn != null -> BurnEditor(burn, actions)
-                plannable -> Hint("Tap your path, a world or a place")
+                plannable -> Hint("Tap to select · choose an action")
                 else -> Hint("A dot a minute")
             }
         } else {

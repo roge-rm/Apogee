@@ -533,8 +533,8 @@ class ApogeeApp(private val host: AppHost) {
                             session?.let { s -> scope.launch { s.cycleNavFrame() } }
                         },
                         targetChoices = { session?.targetChoices() ?: emptyList() },
-                        mapLabels = { w, h -> session?.mapLabels(w, h) ?: emptyList() },
-                        onWarpToMark = { time, label -> session?.let { s -> scope.launch { s.warpTo(time, label) } } },
+                        mapLabels = { w, h, density -> session?.mapLabels(w, h, density) ?: emptyList() },
+                        onMapSelect = { key -> session?.selectMapObject(key) },
                         onWarpAnswer = { id, allow -> session?.let { s -> scope.launch { s.answerWarp(id, allow) } } },
                         onTarget = { id -> session?.let { s -> scope.launch { s.setTarget(id) } } },
                         onToggleBrakes = ::onToggleBrakes,
@@ -615,6 +615,9 @@ class ApogeeApp(private val host: AppHost) {
                             onEdited = { session?.let { s -> scope.launch { s.burnEdited() } } },
                             onDelete = { session?.let { s -> scope.launch { s.deleteBurn() } } },
                             onWarpTo = { session?.let { s -> scope.launch { s.warpToBurn() } } },
+                            onMapSelect = { key -> session?.selectMapObject(key) },
+                            onMapDismiss = { session?.dismissMapSelection() },
+                            onMapAction = { action -> session?.let { s -> scope.launch { s.actOnMapSelection(action) } } },
                             onAutoBurn = { on -> session?.let { s -> scope.launch { s.setAutopilot(on, s.localAutoLand) } } },
                             onAutoLand = { on -> session?.let { s -> scope.launch { s.setAutopilot(s.localAutoBurn, on) } } },
                         ),
@@ -2112,6 +2115,7 @@ class ApogeeApp(private val host: AppHost) {
                     if (hudState.mapMode && readoutsDue) current.mapFocusName.let { if (it != hudState.mapFocus) hudState.mapFocus = it }
                     if (readoutsDue) hudState.chute = current.chuteState
                     if (readoutsDue) hudState.burn = current.burnReadout
+                    if (readoutsDue) hudState.mapSelection = current.mapSelection
                     // When the autopilot or keeper core has the throttle, show where it is.
                     if (current.localAutoBurn || current.localAutoLand || hudState.power?.keeping == true) {
                         // To the half percent, so it only changes when the display would.

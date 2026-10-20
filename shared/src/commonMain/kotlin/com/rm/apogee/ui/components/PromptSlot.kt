@@ -104,7 +104,7 @@ fun PromptSlot(
         }
         BurnPanel(
             hud.burn, hud.landing, hud.mapMode, hud.autopilotNote, burnActions,
-            window = hud.window, align = Alignment.CenterHorizontally, plannable = hud.mapPlannable,
+            window = hud.window, align = Alignment.CenterHorizontally, plannable = hud.mapPlannable, selection = hud.mapSelection,
         )
         if (hud.mapMode) {
             // Ore, water or currents on the map. Taps cycle through them and off.
