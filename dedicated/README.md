@@ -1,11 +1,10 @@
 # Apogee dedicated server
 
-A standalone, persistent Apogee world. Players join it from **Join a Game**, fly,
-log off, and find their craft where they left them. It runs the same simulation a
-phone does when it hosts, with no client of its own, a world saved to disk, and an
-admin channel.
+Host an Apogee world that players can return to. They join from Join a Game, fly and leave their craft saved on the server. The server runs without a player of its own.
 
-## Running it with Docker
+## Running with Docker
+
+From the repository root, copy `.env.example` to `.env`, set `ADMIN_PASSWORD` and start the containers:
 
 ```sh
 cp .env.example .env        # set ADMIN_PASSWORD
@@ -32,9 +31,9 @@ Desktop, or to map the ports yourself:
 docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
 ```
 
-Players then type the address instead.
+Players then enter the server address manually.
 
-## Running it without Docker
+## Running without Docker
 
 ```sh
 ./gradlew :dedicated:installDist
@@ -47,7 +46,7 @@ Without an Android SDK the app is left out, so this needs just a JDK.
 
 ## The images
 
-Both are distroless: a runtime and the application, with no shell.
+The images contain the application and its runtime. The server image includes BusyBox for maintenance; the web image has no shell.
 
 | | size | |
 |---|---|---|
@@ -101,9 +100,7 @@ skipped and named in the log.
 
 ## The control channel
 
-It's a Unix domain socket, so it's protected by file permissions rather than a
-password on an open port. One tab-separated line goes in and one line of JSON
-comes out:
+The admin channel uses a Unix socket protected by file permissions. Requests are one line of tab separated fields, with one line of JSON returned:
 
 ```sh
 printf 'status\n' | socat - UNIX-CONNECT:/run/apogee/control.sock

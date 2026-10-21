@@ -1,19 +1,10 @@
 # Apogee
 
-Apogee is a physics sim for Android 8.1+. It also runs on Linux, on Windows and in a browser.
+Apogee is a physics sim for Android 8.1 or newer, Linux, Windows and browsers. Build rovers, planes, rockets, boats, submarines, helicopters and airships, then take them across the land, sea and solar system.
 
-Build vehicles out of a variety of parts and take them wherever you want - on land, in the air, in space, in (and under) the sea.
-Make rovers, planes, rockets, drones, balloons and airships, ships and submarines. Build bases on land, in the air, and on the water.
+Free play gives you the parts and stock craft from the start. In career mode you earn new parts through feats as you explore. You can build bases on land, at sea or in the air, and host a world to explore with friends. The browser version is solo only.
 
-Play in sandbox mode and explore freely with a variety of bases on different bodies and stock vehicles to take there. Or play in career mode and explore the solar system for yourself, unlocking new parts with the various feats you achieve and building your way up from nothing. 
-
-Do it with friends, too. Apogee is multiplayer at its core, includes a standalone server (easily run with docker) but also runs one
-on your phone every time you play a game. Build things together, explore the solar system, come to each other's rescue and show off what you can do.
-
-The game is complete enough to play and test so I am opening it up to the world to join me in doing so. Build things, break things, tell me what works or what doesn't. 
-
-Join me in the #apogee channel **[on my discord](https://discord.gg/9Wun47jGC6)** to discuss the game or report any bugs.
-<br>You can also add an issue here for me to look at.
+It's ready to play and test. Build things, break things and let me know how it goes in #apogee [on my discord](https://discord.gg/9Wun47jGC6), or open an issue here.
 
 Enjoy!
 Dan
@@ -26,46 +17,24 @@ Dan
 
 ## What's in it
 
-**A solar system.** A sun, planets and moons, each with its own gravity, air, weather and ground. Terra is home, with the Cape's launch complex, an airfield, a harbour and a coast. Every world with solid ground can be landed on.
+- A solar system with different gravity, air, weather and ground on each world. Terra has a launch complex, airfield, harbour and coast. You can land on any world with solid ground.
+- Vehicle Assembly with symmetry, staging, action groups and saved assemblies. The stats card shows Δv, thrust, lift, buoyancy and how high the craft can go.
+- Rockets with planned burns and autopilots, planes with flaps and approach cues, rovers with suspension, hitches and winches, and helicopters, drones, balloons and airships.
+- Boats with sails, motors and water jets, submarines with ballast and sonar, and decks you can carry vehicles on. Flat Top has a catapult and arresting wires.
+- Waves, tides, currents and underwater canyons and vents. Launch at the Roaring Sea with Wild weather for big seas.
+- Hurricanes, tornadoes, waterspouts, tsunamis, rogue waves, quakes, dust storms, blizzards, hail, lightning and volcanic ash. Set Extreme for frequent events or Wild for occasional ones.
+- Bases with pads, power and industry that turns ore and water into propellant.
+- Crew who fly, walk, climb ladders, swim, dive, plant flags and rescue each other. Suits limit how deep they can dive.
+- Save points and reverting to launch in your own world.
+- Hosting, joining and dedicated servers for shared worlds.
 
-**Building.** Vehicle Assembly puts parts together node by node, with symmetry, staging, action groups and saved assemblies. A stats card shows Δv, thrust, whether it hovers or floats, and how high it'll go.
-
-**Flying anything.**
-- Rockets with staging, gimballed engines, stability assist, planned burns and an autopilot for burns and landings.
-- Planes with flaps, cruise control, and an approach cue at the runway.
-- Rovers and haulers with suspension, hitches and a winch.
-- Boats with hulls that take on water, keels, rudders, sails, outboards and water jets, and submarines with ballast and sonar.
-- Ships, a schooner, barges and a harbour tug to tow or push them. Anything parked on a deck rides along.
-- Decks to fly from at sea: a landing barge for helicopters, and the Flat Top with a catapult and arresting wires.
-- Helicopters and drones, and balloons and airships.
-- Auto land for anything that flies. It's in the stability assist menu.
-- Crew who swim, dive and walk on the sea floor, as deep as their suit allows.
-
-**The sea.** Waves that move what floats, storms, tides, currents, and a deep world underneath with canyons, vents and places to find. For big seas, launch at the Roaring Sea with the weather set to Wild.
-
-**Extreme weather.** Hurricanes, tornadoes and waterspouts, tsunamis that flood low land, and rogue waves, with a warning when one's near. Earthquakes and moonquakes shake the ground, dust storms hide everything, blizzards chill your crew, hail and lightning damage parts, volcanic ash chokes jets and tornadoes throw debris. Set the weather to Extreme, or Wild for now and then.
-
-**Bases.** Found a base on any solid world, floating on the sea or in the sky, or on the sea floor. Bases have pads, power, and industry that turns ore and water into propellant.
-
-**Crew.** Named astronauts who fly your craft, walk on other worlds, climb ladders, plant flags and can be rescued.
-
-**A career, or free play.** The career starts from nothing. Feats earn insight, which you spend on a tech tree. Free play has every part and craft from the start.
-
-**Save points.** In your own world you can take a save point, go back to it, or revert to the launch.
-
-**Playing together.** Host a game on your network, join someone else's, or run a dedicated server for a world everyone comes back to.
+Auto land is in the stability assist menu for anything that flies.
 
 ---
 
 ## Installing
 
-The easiest way to install Apogee and keep it up to date is through my F-Droid repo:
-
-[https://hunke.ws/fdroid/repo](https://hunke.ws/fdroid/repo?fingerprint=80438B253C257BCCE05CDCB9E3AC9B6174C2250659962B14FCBE7F32FD42D53E)
-
-Then search for Apogee in F-Droid. When a new version comes out, F-Droid will offer it as an update.
-
-You can also download the APK from the [Releases](https://github.com/roge-rm/Apogee/releases) page and sideload it.
+Add [my F-Droid repo](https://hunke.ws/fdroid/repo?fingerprint=80438B253C257BCCE05CDCB9E3AC9B6174C2250659962B14FCBE7F32FD42D53E), then search for Apogee. F-Droid offers new versions as updates. You can also get an APK from [Releases](https://github.com/roge-rm/Apogee/releases).
 
 ### Linux
 
@@ -81,8 +50,8 @@ Then `sudo apt install apogee`. It brings Java 21 with it.
 
 Or from the [Releases](https://github.com/roge-rm/Apogee/releases) page:
 
-- **Debian and Raspberry Pi OS:** the `.deb` for your machine, amd64 or arm64. Install it with `sudo apt install ./apogee_*.deb`.
-- **Anything else** (Ubuntu 22.04 and newer, Fedora, Arch, the Steam Deck): the AppImage, x86_64 or aarch64. It has its own Java, so just make it executable and run it.
+- Debian and Raspberry Pi OS: the `.deb` for your machine, amd64 or arm64. Install it with `sudo apt install ./apogee_*.deb`.
+- Other distributions (Ubuntu 22.04 and newer, Fedora, Arch, the Steam Deck): the AppImage, x86_64 or aarch64. It has its own Java, so just make it executable and run it.
 
 It needs OpenGL 3.3. F11 goes full screen.
 
@@ -175,7 +144,7 @@ The tests:
 
 Without an Android SDK the app is left out, so the server builds with just a JDK.
 
-Terra uses Earth relief and climate data, with a redesigned Cape harbour. See [terrain sources and attribution](docs/terra-terrain.md). Multiplayer games require matching terrain generations; all players and dedicated servers need 0.9.4 for the new terrain.
+Terra uses Earth relief and climate data, with a redesigned Cape harbour. See [terrain sources and attribution](docs/terra-terrain.md). Multiplayer games require matching terrain generations. All players and dedicated servers need the terrain introduced in 0.9.4.
 
 ## Running a server
 
@@ -195,11 +164,11 @@ A dedicated server is a persistent world that players join from **Join a Game**.
 | `web` | The synth's build for the web page. |
 | `art` | The icon and the tools for the parts' pictures. |
 
-The server runs every world. The app predicts the craft you're flying to hide lag, and the server always wins.
+The server runs the world. The app predicts your craft between updates and corrects it to match the server.
 
 ## Licence
 
-Apogee is free software under the **GNU General Public License, version 3 or later**. See [LICENSE](LICENSE).
+Apogee is free software under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE).
 
 Copyright © 2026 Dan Hunke.
 
