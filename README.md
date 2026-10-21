@@ -18,7 +18,7 @@ Dan
 ## What's in it
 
 - A solar system with different gravity, air, weather and ground on each world. Terra has a launch complex, airfield, harbour and coast. You can land on any world with solid ground.
-- Vehicle Assembly with symmetry, staging, action groups and saved assemblies. The stats card shows Δv, thrust, lift, buoyancy and how high the craft can go.
+- Vehicle Assembly with symmetry, staging, action groups and saved assemblies. The stats card shows Δv, thrust, whether the craft can hover or float and how high it can go.
 - Rockets with planned burns and autopilots, planes with flaps and approach cues, rovers with suspension, hitches and winches, and helicopters, drones, balloons and airships.
 - Boats with sails, motors and water jets, submarines with ballast and sonar, and decks you can carry vehicles on. Flat Top has a catapult and arresting wires.
 - Waves, tides, currents and underwater canyons and vents. Launch at the Roaring Sea with Wild weather for big seas.
