@@ -798,7 +798,9 @@ class TsunamiSceneTest(
             }
             run {
                 val camera = above(out(-1_000.0), 3_500.0)
-                h.shoot("crest-from-air", camera, look(camera, Vec3().setTo(out(7_000.0)).mulInPlace(radius), berth), frontAt(out(7_000.0), 0.5))
+                // A gentle crest's line ends where the wave starts to steepen, so for a small one 9 km out.
+                val seven = frontAt(out(7_000.0), 0.5)
+                h.shoot("crest-from-air", camera, look(camera, Vec3().setTo(out(7_000.0)).mulInPlace(radius), berth), if (seven != e.crest) seven else frontAt(out(9_000.0), 0.5))
             }
             // Two overlapping: the second's front running in behind the first's, from the air.
             run {

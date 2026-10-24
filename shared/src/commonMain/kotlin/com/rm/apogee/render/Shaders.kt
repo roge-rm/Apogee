@@ -182,8 +182,9 @@ object Shaders {
             float a = min(cap, deep * sqrt(sqrt(3000.0 / d)));
             float steep = smoothstep(0.1, 0.35, a / d);
             float envelope = exp(-max(tau, 0.0) / 2400.0) * (1.0 - smoothstep(5760.0, 7200.0, tau));
-            float white = (smoothstep(0.6, 0.9, steep) - 0.8 * (1.0 - smoothstep(0.0, 0.15, steep))) * smoothstep(0.3, 0.9, a * envelope);
             float rise = 0.5 + (min(3.0 / period, 0.5) - 0.5) * steep;
+            // Tsunamis.crestLine: a gentle crest's line goes before its crest has moved 4 s.
+            float white = (smoothstep(0.6, 0.9, steep) - 0.8 * (1.0 - smoothstep(0.0, 4.0, 0.5 * (0.5 - rise) * period))) * smoothstep(0.3, 0.9, a * envelope);
             float crest = tau - (0.5 + 0.5 * rise) * period;
             // Its own crest nearest behind (Tsunamis.sinceCrest), for which tier its foam is in.
             float k = floor((crest + period - 250.0) / period);

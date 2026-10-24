@@ -3761,8 +3761,8 @@ class GameSession private constructor(
         val target = VesselPose.Values()
         val shown = VesselPose.Values()
         var spin = DoubleArray(0)
-        /** How fast fuel rotors turn for the ash they breathe, eased: 1 in clean air. */
-        var ashSpin = 1.0
+        /** How fast each fuel rotor turns for the ash it breathes, eased, by part: 1 in clean air and for anything else. */
+        var ashSpin = DoubleArray(0)
         var initialised = false
         /** Its parts' definitions, looked up once for [defsFor] rather than every frame. */
         var defsFor: com.rm.apogee.core.craft.CraftDesign? = null
@@ -4915,6 +4915,7 @@ class GameSession private constructor(
         }
         animation.shown.fit(n)
         if (animation.spin.size != n) animation.spin = DoubleArray(n)
+        if (animation.ashSpin.size != n) animation.ashSpin = DoubleArray(n) { 1.0 }
         if (fresh) {
             val ease = if (predicted || !animation.initialised) 1.0 else (animationDt / POSE_EASING_SECONDS).coerceIn(0.0, 1.0)
             val t = animation.target; val sh = animation.shown
@@ -5062,10 +5063,9 @@ class GameSession private constructor(
                 val blades = PartModels.blades(def)
                 if (speed > 0.0 && blades != null) {
                     // Fuel rotors in ash turn slower, down to ASH_SPIN_LEAST. Drawn only.
-                    val ash = if (predicted && rotor.propellant != com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) prediction.replica?.air?.ash ?: 0.0 else 0.0
-                    val aim = rotorAshSpin(ash, dragForces)
-                    animation.ashSpin += (aim - animation.ashSpin) * (animationDt / ASH_SPIN_EASING).coerceIn(0.0, 1.0)
-                    animation.spin[index] += speed * animation.ashSpin * bladeRate(blades.radius) * animationDt
+                    val ash = if (predicted) prediction.replica?.air?.ash ?: 0.0 else 0.0
+                    val ashSpin = easeRotorAshSpin(animation.ashSpin, index, rotor, ash, dragForces, animationDt)
+                    animation.spin[index] += speed * ashSpin * bladeRate(blades.radius) * animationDt
                     if (!mapMode) {
                         // The flown craft's main rotor tilts its disc the way it's pulling.
                         val tilt = if (predicted && rotor.cyclic > 0.0) {
@@ -5093,7 +5093,7 @@ class GameSession private constructor(
                             ),
                         )
                     }
-                    soundCraft(vessel.id, position, state.velocity, attractor).rotor(speed, rotor.diameter, if (predicted) animation.ashSpin else 1.0)
+                    soundCraft(vessel.id, position, state.velocity, attractor).rotor(speed, rotor.diameter, animation.ashSpin.getOrElse(index) { 1.0 })
                 }
             }
             // A thruster block firing: puffs come out opposite its push, with a chuff. The push is
@@ -5671,6 +5671,18 @@ class GameSession private constructor(
             if (ash <= 0.0) return 1.0
             val left = forces.rotorAshLeft(ash)
             return ASH_SPIN_LEAST + (1.0 - ASH_SPIN_LEAST) * ((left - 0.4) / 0.6).coerceIn(0.0, 1.0)
+        }
+
+        /**
+         * Eases part [index]'s drawn ash spin in [spins] toward [rotorAshSpin] over [dt] and
+         * returns it. Electric rotors stay at 1 and leave their slot alone.
+         */
+        fun easeRotorAshSpin(spins: DoubleArray, index: Int, rotor: com.rm.apogee.core.part.Rotor, ash: Double, forces: com.rm.apogee.core.world.Forces, dt: Double): Double {
+            if (index !in spins.indices) return 1.0
+            if (rotor.propellant == com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) return 1.0
+            val aim = rotorAshSpin(ash, forces)
+            spins[index] += (aim - spins[index]) * (dt / ASH_SPIN_EASING).coerceIn(0.0, 1.0)
+            return spins[index]
         }
 
         /** Whether [craft] has an air-breathing jet lit with the throttle up and choked by ash. */

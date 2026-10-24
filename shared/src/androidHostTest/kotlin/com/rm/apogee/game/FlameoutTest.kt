@@ -45,4 +45,19 @@ class FlameoutTest {
         assertEquals(1.0, GameSession.rotorAshSpin(0.0, forces), 1e-9)
         assertTrue(GameSession.rotorAshSpin(0.9, forces) in 0.65..0.7)
     }
+
+    @Test
+    fun `an electric rotor beside a fuel rotor neither slows in ash nor disturbs the fuel rotor`() {
+        val fuel = com.rm.apogee.core.part.Rotor(lift = 10_000.0, diameter = 8.0)
+        val electric = fuel.copy(propellant = com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE)
+        val both = DoubleArray(2) { 1.0 }
+        val alone = DoubleArray(1) { 1.0 }
+        repeat(120) {
+            val shared = GameSession.easeRotorAshSpin(both, 0, fuel, 0.9, forces, 1.0 / 60.0)
+            assertEquals(1.0, GameSession.easeRotorAshSpin(both, 1, electric, 0.9, forces, 1.0 / 60.0), 0.0)
+            assertEquals(GameSession.easeRotorAshSpin(alone, 0, fuel, 0.9, forces, 1.0 / 60.0), shared, 0.0)
+        }
+        assertTrue(both[0] < 0.75)
+        assertEquals(1.0, both[1], 0.0)
+    }
 }

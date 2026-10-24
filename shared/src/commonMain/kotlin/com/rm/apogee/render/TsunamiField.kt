@@ -91,8 +91,8 @@ class TsunamiField(
         val a = min(cap, deep * sqrt(sqrt(DEEP_DEPTH / d)))
         val steep = smooth(BORE_FROM, BORE_FULL, a / d)
         val envelope = kotlin.math.exp(-max(tau, 0.0) / DECAY) * (1.0 - smooth(0.8 * TRAIN, TRAIN, tau))
-        val white = (smooth(0.6, 0.9, steep) - CREST_WHITE * (1.0 - smooth(0.0, 0.15, steep))) * smooth(BORE_LEAST, BORE_LEAST * 3.0, a * envelope)
         val rise = 0.5 + (min(BORE_RISE / period, 0.5) - 0.5) * steep
+        val white = (smooth(0.6, 0.9, steep) - CREST_WHITE * (1.0 - smooth(0.0, CREST_SHIFT, 0.5 * (0.5 - rise) * period))) * smooth(BORE_LEAST, BORE_LEAST * 3.0, a * envelope)
         val crest = tau - (0.5 + 0.5 * rise) * period
         val since = sinceCrest(crest, period)
         out[at] = crest; out[at + 1] = white
@@ -139,6 +139,7 @@ class TsunamiField(
         const val BORE_LEAST = 0.3
         const val BORE_TRAIL = 70.0
         const val CREST_WHITE = 0.8
+        const val CREST_SHIFT = 4.0
         const val FOAM_AHEAD = 30.0
         const val FOAM_BEHIND = 240.0
         const val NO_CREST = -10_000.0

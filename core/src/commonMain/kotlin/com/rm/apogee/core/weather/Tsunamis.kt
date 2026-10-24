@@ -388,10 +388,9 @@ internal class Tsunamis(
         val envelope = envelopeAt(tau)
         val strength = smooth(BORE_LEAST, BORE_LEAST * 3.0, a * envelope) * share
         val bore = smooth(0.6, 0.9, steep)
-        val gentle = if (steep < 0.15) CREST_WHITE * (1.0 - smooth(0.0, 0.15, steep)) else 0.0
-        val white = (bore - gentle) * strength
         // Where wave() puts the crest: the rise squeezed toward [BORE_RISE] seconds as it steepens.
         val rise = 0.5 + (min(BORE_RISE / period, 0.5) - 0.5) * steep
+        val white = (bore - crestLine(rise, period)) * strength
         val crest = tau - (0.5 + 0.5 * rise) * period - lead
         val since = sinceCrest(crest, period)
         val showing = if (kotlin.math.abs(white) < 0.01 || since <= -FOAM_AHEAD || since >= FOAM_BEHIND) 0
@@ -647,7 +646,8 @@ internal class Tsunamis(
         // Out where it hasn't started to steepen, its crest still breaks a little: a pale line
         // from afar. (Part steepened, the crest comes at a time that varies with the depth, so
         // there it would only be spots.)
-        if (steep < 0.15 && since > face - CREST_LINE - blur && since < face + blur) waveFoam = max(waveFoam, CREST_WHITE * (1.0 - smooth(0.0, 0.15, steep)))
+        val gentle = crestLine(rise, period)
+        if (gentle > 0.0 && since > face - CREST_LINE - blur && since < face + blur) waveFoam = max(waveFoam, gentle)
     }
 
     /**
@@ -1030,6 +1030,17 @@ internal class Tsunamis(
         /** Seconds of a gentle crest's front that are white, and how white, 0..1. */
         const val CREST_LINE = 8.0
         const val CREST_WHITE = 0.8
+
+        /**
+         * Seconds the crest may come earlier as the wave starts to steepen before a gentle crest's
+         * line is gone. Further in, the crest time follows the depth, and the line would bend along
+         * the depth lines into loops.
+         */
+        const val CREST_SHIFT = 4.0
+
+        /** How white a gentle crest's line is, with its share of a cycle [rise] taken as in [wave]. */
+        fun crestLine(rise: Double, period: Double): Double =
+            CREST_WHITE * (1.0 - smooth(0.0, CREST_SHIFT, 0.5 * (0.5 - rise) * period))
 
         /** Seconds before a crest its foam may show from (blur included) and after it to when it's gone. */
         const val FOAM_AHEAD = 30.0
