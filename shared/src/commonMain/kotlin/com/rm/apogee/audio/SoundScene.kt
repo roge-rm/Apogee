@@ -60,9 +60,14 @@ class SoundScene(private val budget: Int) {
         var rotorSize = 0.0
             private set
 
-        fun rotor(output: Double, diameter: Double) {
+        /** How fast its rotors turn against clean air, 1 down to 0.65 in ash: the slowest one, for the flown craft only. */
+        var rotorSpin = 1.0
+            private set
+
+        fun rotor(output: Double, diameter: Double, spin: Double = 1.0) {
             rotor = maxOf(rotor, output.coerceIn(0.0, 1.0))
             rotorSize = maxOf(rotorSize, diameter)
+            rotorSpin = minOf(rotorSpin, spin.coerceIn(0.3, 1.0))
         }
 
         /** How hard its thrusters are firing, 0..1, from the hardest-working block. */
@@ -245,7 +250,8 @@ class SoundScene(private val budget: Int) {
                 // Blades passing a second: about twenty for a helicopter, far more for a drone.
                 v[1] = (18.0 / size.coerceAtLeast(0.1)).coerceAtMost(160.0).toFloat()
                 v[2] = size.toFloat()
-                v[SharedParams.PITCH] = doppler(listener, craft).toFloat()
+                // Slower turning in ash drops the pitch the same share.
+                v[SharedParams.PITCH] = (doppler(listener, craft) * craft.rotorSpin).toFloat()
                 add(base + SLOT_ROTOR, Recipes.ROTOR, 0, v, g, p, lp, weight = g * (0.4f + v[0]))
             }
             if (air && craft.luff > 0.02 && listener.wind > CALM) {

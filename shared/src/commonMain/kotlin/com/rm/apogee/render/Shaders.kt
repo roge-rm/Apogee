@@ -965,9 +965,11 @@ object Shaders {
             vec2 second;
             vec3 wave = tsunamiAt(worldPos.xyz, second);
             // Land too keeps the time since the crest, with no white, so it runs on smoothly
-            // across a triangle at the coast.
+            // across a triangle at the coast. It's the open sea's time, with no shelf delay: the
+            // water corner of a far coast triangle is often well out past the shelf, and up to
+            // 260 s of delay on the land corner alone folds the crest line into a V there.
             if (uTsunamiGrid.y > 0.5) {
-                vec3 crest = tsunamiCrest(wave, second, max((code - 1.0) * 1000.0, 0.0));
+                vec3 crest = tsunamiCrest(wave, second, code < 0.5 ? ${TsunamiField.SHOAL_DEPTH} : max((code - 1.0) * 1000.0, 0.0));
                 vTsunami = vec2(crest.x, 0.0);
                 vTsunamiPeriod = crest.z;
             }

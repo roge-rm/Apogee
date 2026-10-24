@@ -354,4 +354,27 @@ class BlizzardTest {
         w.blizzardDue(bare, 5_000.0, 1_000.0)
         assertEquals(before, w.windLooks)
     }
+
+    @Test
+    fun `a steady wind just under the threshold over snow is not due`() {
+        val w = Weather(terra, extreme)
+        val rnd = java.util.Random(5)
+        var found = 0
+        repeat(20_000) {
+            if (found >= 3) return@repeat
+            val lat = if (rnd.nextBoolean()) -70.0 - 18 * rnd.nextDouble() else 72.0 + 15 * rnd.nextDouble()
+            val d = direction(lat, 360 * rnd.nextDouble())
+            if (w.snowCover(d) < 0.5) return@repeat
+            val t = rnd.nextDouble() * 400 * 3_600.0
+            // Every look over the next 1000 s is between 17 and the threshold.
+            val winds = (0..7).map { w.groundWindLook(d, t + it * Weather.WIND_LOOK_STEP) }
+            if (winds.any { it < 17.0 || it >= Blizzards.GROUND_FROM }) return@repeat
+            // No storm blizzard anywhere near over the window, so only the wind is in question.
+            if ((-4..24).any { k -> live(w, t + 50.0 * k).any { b -> b.centre.distanceTo(d) * terra.radius < b.reach + 2_000_000.0 } }) return@repeat
+            found++
+            assertTrue("not due at $t with winds $winds", !w.blizzardDue(d, t, 1_000.0))
+        }
+        println("$found steady sub-threshold places")
+        assertTrue(found > 0)
+    }
 }

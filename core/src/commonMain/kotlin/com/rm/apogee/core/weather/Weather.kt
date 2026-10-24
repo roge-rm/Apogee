@@ -72,6 +72,8 @@ class Weather(
     private val jetScratch = Vec3()
     private val probe = Vec3()
     private val lookUp = Vec3()
+    private val lookEast = Vec3()
+    private val lookNorth = Vec3()
     private val rotated = Vec3()
     private val descriptor = DoubleArray(TerrainWind.SIZE)
     private val gradient = Vec3()
@@ -923,21 +925,25 @@ class Weather(
     /**
      * Whether the free wind over snowy ground at unit [up] passes the ground blizzards' threshold
      * within [look] seconds of [time]. One free-wind look every [WIND_LOOK_STEP] seconds from [time]
-     * to its end, so at most look / WIND_LOOK_STEP + 2 per call, and none off snow. Leans early.
+     * to its end, so at most look / WIND_LOOK_STEP + 2 per call, and none off snow.
      */
     private fun groundBlizzardDue(up: Vec3, time: Double, look: Double): Boolean {
         if (!blizzards.windy || blizzards.snowCover(up) <= 0.0) return false
-        val e = Vec3(); val n = Vec3()
-        frame(up, e, n)
         val to = time + look
         var t = time
         while (true) {
-            windLooks++
-            circulation(up, e, n, t, free, surfaceInflow = 1.0 - smooth(0.0, 1_500.0, WIND_LOOK_HEIGHT))
-            if (free.length * intensity.wind >= WIND_LOOK_SHARE * Blizzards.GROUND_FROM) return true
+            if (groundWindLook(up, t) >= Blizzards.GROUND_FROM) return true
             if (t >= to) return false
             t = minOf(t + WIND_LOOK_STEP, to)
         }
+    }
+
+    /** The free wind speed a ground blizzard would see at unit [up] at [time]: one look. */
+    internal fun groundWindLook(up: Vec3, time: Double): Double {
+        frame(up, lookEast, lookNorth)
+        windLooks++
+        circulation(up, lookEast, lookNorth, time, free, surfaceInflow = 1.0 - smooth(0.0, 1_500.0, WIND_LOOK_HEIGHT))
+        return free.length * intensity.wind
     }
 
     /** Whether this world and setting can have blizzards or snow lifted by the wind at all. */
@@ -1088,10 +1094,9 @@ class Weather(
         quakes.force(epicentre, start, magnitude, depth, also)
 
     companion object {
-        /** Ground blizzard look-ahead: seconds between free-wind looks, the height they're at, and the share of the threshold that counts (a little early is fine). */
+        /** Ground blizzard look-ahead: seconds between free-wind looks and the height they're at. */
         const val WIND_LOOK_STEP = 150.0
         const val WIND_LOOK_HEIGHT = 3.0
-        const val WIND_LOOK_SHARE = 0.92
 
         /** The seed a weather made from [config] works from, which its parts each salt their own way. */
         internal fun seedOf(config: WeatherConfig): Int = config.seed * 31 + 0x5EA7

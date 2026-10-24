@@ -832,10 +832,12 @@ class Effects(tier: QualityTier) {
             val kink = if (k == 0 || k == BOLT_MAIN) 0.0 else 1.4 * step
             if (k > 0) {
                 // Each piece leans at most BOLT_LEAN of its rise to the side, so it never folds back.
+                // Close, the rise high up is seen nearly end on from near the ground, so the lean
+                // there shrinks with height or the top tangles into a knot.
                 var dx = drift + (Noise.hash(seed, k, 10, 0) - 0.5) * kink - x
                 var dy = driftN + (Noise.hash(seed, k, 10, 1) - 0.5) * kink - y
                 val sideways = kotlin.math.sqrt(dx * dx + dy * dy)
-                val most = BOLT_LEAN * step
+                val most = BOLT_LEAN * step * (if (close) min(1.0, BOLT_CLOSE_VIEW / h) else 1.0)
                 if (sideways > most) { dx *= most / sideways; dy *= most / sideways }
                 x += dx; y += dy
             }
@@ -1655,8 +1657,12 @@ class Effects(tier: QualityTier) {
             val angle = a.distanceTo(b) / distance
             // Off the screen: more than about 55 degrees off the view, by its nearest end.
             val off = kotlin.math.acos(((scratch dot boltLook) / distance).coerceIn(-1.0, 1.0)) - angle * 0.5 > 0.95
+            // Split by how long it looks across the view, so a piece seen end on isn't kinked into a knot.
+            val dx = b.x - a.x; val dy = b.y - a.y; val dz = b.z - a.z
+            val toward = (dx * scratch.x + dy * scratch.y + dz * scratch.z) / distance
+            val seen = kotlin.math.sqrt(max(dx * dx + dy * dy + dz * dz - toward * toward, 0.0)) / distance
             var level = 0
-            while (!off && level < BOLT_LEVELS && angle / (1 shl level) > BOLT_SPLIT) level++
+            while (!off && level < BOLT_LEVELS && seen / (1 shl level) > BOLT_SPLIT) level++
             boltLevels[k] = level
             total += (1 shl level) - 1
         }
@@ -1960,6 +1966,8 @@ class Effects(tier: QualityTier) {
         const val BOLT_MAIN = 48
         /** How far a main channel piece can go sideways, as a share of how far it rises. */
         const val BOLT_LEAN = 0.8
+        /** How far off a close bolt is seen from, metres: above this height its lean shrinks so it still looks no more than BOLT_LEAN from here. */
+        const val BOLT_CLOSE_VIEW = 150.0
         const val BOLT_BRANCH = 8
         /** A bolt segment longer than this as seen, in radians, is split, at most this many times over and into this many new points a bolt. */
         const val BOLT_SPLIT = 0.012

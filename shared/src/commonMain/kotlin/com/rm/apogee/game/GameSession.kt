@@ -5093,7 +5093,7 @@ class GameSession private constructor(
                             ),
                         )
                     }
-                    soundCraft(vessel.id, position, state.velocity, attractor).rotor(speed, rotor.diameter)
+                    soundCraft(vessel.id, position, state.velocity, attractor).rotor(speed, rotor.diameter, if (predicted) animation.ashSpin else 1.0)
                 }
             }
             // A thruster block firing: puffs come out opposite its push, with a chuff. The push is
