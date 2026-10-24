@@ -342,8 +342,7 @@ class WeatherWarnings(
     }
 
     private val eruptions = ArrayList<LiveEruption>()
-    private val ashAlong = Vec3()
-    private val ashSide = Vec3()
+    private val ashPlace = DoubleArray(2)
 
     /**
      * An ash cloud within [ASH_WARN] of the craft (a danger in ash [ASH_THICK] thick at the craft),
@@ -377,13 +376,10 @@ class WeatherWarnings(
 
     /** How far unit [up] is from the edge of [e]'s ash cloud over the ground, metres; 0 inside. */
     private fun ashEdge(e: LiveEruption, up: Vec3): Double {
-        ashAlong.setTo(e.drift)
-        if (ashAlong.lengthSq < 1e-12 || e.length < 1.0) return arc(up, e.vent) - AshScene.START_WIDTH
-        ashAlong.addScaledInPlace(e.vent, -(ashAlong dot e.vent)).normalizeInPlace()
-        ashSide.setTo(e.vent).crossInPlace(ashAlong).normalizeInPlace()
-        val pv = up dot e.vent; val pf = up dot ashAlong; val pg = up dot ashSide
-        val along = kotlin.math.atan2(pf, pv) * body.radius
-        val across = kotlin.math.abs(kotlin.math.atan2(pg, kotlin.math.sqrt(pv * pv + pf * pf)) * body.radius)
+        if (e.length < 1.0) return arc(up, e.vent) - AshScene.START_WIDTH
+        e.track.project(up, ashPlace)
+        val along = ashPlace[0]
+        val across = ashPlace[1]
         val start = AshScene.START_WIDTH
         val end = kotlin.math.max(e.halfWidth, start)
         // Once it stops, the cloud starts [LiveEruption.near] downwind, moving away from the vent.

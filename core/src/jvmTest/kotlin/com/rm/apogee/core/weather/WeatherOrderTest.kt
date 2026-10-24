@@ -27,9 +27,7 @@ class WeatherOrderTest {
     private fun ashPoints(body: CelestialBody, time: Double): List<Vec3> = buildList {
         val live = ArrayList<LiveEruption>().also { Weather(body, extreme).eruptions(Vec3.unitY(), time, Double.MAX_VALUE, it) }
         for (e in live) {
-            val heading = e.drift.copy().normalizeInPlace()
-            for (k in 0..6) add(Vec3().setTo(e.vent).mulInPlace(body.radius).addScaledInPlace(heading, e.length * k / 6.0)
-                .normalizeInPlace().mulInPlace(body.radius + 9_000.0))
+            for (k in 0..6) add(e.track.pointAt(e.length * k / 6.0, Vec3()).mulInPlace(body.radius + 9_000.0))
         }
     }
 

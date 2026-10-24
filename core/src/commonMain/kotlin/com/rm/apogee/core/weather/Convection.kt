@@ -1,11 +1,13 @@
 package com.rm.apogee.core.weather
 
+import com.rm.apogee.core.math.StrictMath
+import com.rm.apogee.core.sea.DetMath
+import com.rm.apogee.core.sea.DetMath.exp
+import com.rm.apogee.core.sea.DetMath.sin
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.terrain.Noise
-import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
-import kotlin.math.sin
 import com.rm.apogee.core.math.Math
 import com.rm.apogee.core.lruMapOf
 
@@ -99,8 +101,8 @@ internal class Convection(
                 val out = Noise.hash(seed + 30 + l, cx, cy, c)
                 val r = if (l == 0) 0.0 else width * 0.5 * out
                 val o = l * 5
-                th.lobes[o] = kotlin.math.cos(a) * r
-                th.lobes[o + 1] = kotlin.math.sin(a) * r
+                th.lobes[o] = DetMath.cos(a) * r
+                th.lobes[o + 1] = DetMath.sin(a) * r
                 th.lobes[o + 2] = if (l == 0) 0.0 else
                     (Noise.hash(seed + 40 + l, cx, cy, c) - 0.25) * th.depth * 0.6 * (1.2 - out)
                 th.lobes[o + 3] = if (l == 0) width * (0.35 + 0.2 * Noise.hash(seed + 50, cx, cy, c)) * 1.25
@@ -138,7 +140,7 @@ internal class Convection(
     /** Its strength envelope at [time]: it swells, peaks and fades. */
     fun envelope(th: Thermal, time: Double): Double {
         val u = ((time - th.start) / CYCLE).coerceIn(0.0, 1.0)
-        return Math.pow(sin(Math.PI * u), 0.7)
+        return StrictMath.pow(sin(Math.PI * u), 0.7)
     }
 
     /** How much of its cloud there is at [time], 0..1. None until it has been going a while. */

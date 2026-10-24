@@ -54,6 +54,7 @@ class GlRenderer(
     @Volatile var debugCpuTiming = false
     @Volatile var debugNoCloudCulling = false
     @Volatile var debugLegacyTsunamiTerrain = false
+    @Volatile var debugNoAshVeil = false
     @Volatile var debugNoTsunamiTerrain = false
     @Volatile var debugLegacyTerrainCulling = false
     private val terrainVisibility = TerrainVisibility()
@@ -452,6 +453,7 @@ class GlRenderer(
             drawHurricaneVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
             drawDustVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
             drawSnowVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
+            drawAshVeil(world, cameraPos, farViewProjection.m, HURRICANE_VEIL_SPLIT, Float.MAX_VALUE)
             mark(5)
             // Paths use the far projection, since an orbit is hundreds of kilometres across and the
             // near frustum would clip it. Drawn last, over everything, so near ground can't cover a
@@ -484,6 +486,7 @@ class GlRenderer(
             drawHurricaneVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
             drawDustVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
             drawSnowVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
+            drawAshVeil(world, cameraPos, nearViewProjection.m, 0f, HURRICANE_VEIL_SPLIT)
         }
         mark(12)
         latest.particles?.let { particles ->
@@ -677,6 +680,18 @@ class GlRenderer(
         val mesh = snowVeilMesh ?: CloudShellMesh().also { snowVeilMesh = it }
         val shader = dustVeilProgram ?: ShaderProgram(Shaders.HURRICANE_VEIL_VERTEX, Shaders.DUST_VEIL_FRAGMENT, "dust-veil").also { dustVeilProgram = it }
         drawVeil(shader, veil, mesh, world.snowVeilAlpha, world, cameraPos, viewProjection, from, to)
+    }
+
+    private var ashVeilMesh: CloudShellMesh? = null
+
+    /** Ash clouds' ribbons, drawn as the dust's are, in their own colour. */
+    private fun drawAshVeil(world: WorldView, cameraPos: Vec3, viewProjection: FloatArray, from: Float, to: Float) {
+        if (debugNoAshVeil) return
+        val veil = world.ashVeil ?: return
+        if (world.ashVeilAlpha <= 0.01f) return
+        val mesh = ashVeilMesh ?: CloudShellMesh().also { ashVeilMesh = it }
+        val shader = dustVeilProgram ?: ShaderProgram(Shaders.HURRICANE_VEIL_VERTEX, Shaders.DUST_VEIL_FRAGMENT, "dust-veil").also { dustVeilProgram = it }
+        drawVeil(shader, veil, mesh, world.ashVeilAlpha, world, cameraPos, viewProjection, from, to)
     }
 
     private fun drawVeil(shader: ShaderProgram, veil: CloudShell, mesh: CloudShellMesh, alpha: Float, world: WorldView, cameraPos: Vec3, viewProjection: FloatArray, from: Float, to: Float) {
@@ -1965,6 +1980,7 @@ class GlRenderer(
         hurricaneVeilMesh?.release(); hurricaneVeilMesh = null
         dustVeilMesh?.release(); dustVeilMesh = null
         snowVeilMesh?.release(); snowVeilMesh = null
+        ashVeilMesh?.release(); ashVeilMesh = null
         globeMesh?.release(); globeMesh = null
         for (mesh in farGlobeMeshes.values) mesh.release()
         farGlobeMeshes.clear()

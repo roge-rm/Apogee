@@ -32,13 +32,16 @@ import org.w3c.dom.HTMLCanvasElement
  */
 fun main() {
     val canvas = document.getElementById("world") as HTMLCanvasElement
-    webGl = context(canvas)
+    val settings = GameSettings(StoragePreferences())
+    // No antialiasing on LOW detail, for the frame rate. It's fixed with the context, so a change
+    // of detail shows when the page is next loaded.
+    webGl = context(canvas, (settings.effectiveTier ?: webTier()) != QualityTier.LOW)
     if (webGl == null) {
         document.getElementById("loading")?.remove()
         document.getElementById("nogl")?.setAttribute("style", "display: flex")
         return
     }
-    val host = WebHost(canvas)
+    val host = WebHost(canvas, settings)
     val app = ApogeeApp(host)
     host.app = app
     ComposeViewport(document.getElementById("screens")!!) { app.Content() }
@@ -55,8 +58,17 @@ fun main() {
     }
 }
 
-private fun context(canvas: HTMLCanvasElement): JsAny? =
-    js("canvas.getContext('webgl2', { antialias: true, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance' })")
+private fun context(canvas: HTMLCanvasElement, antialias: Boolean): JsAny? =
+    js("canvas.getContext('webgl2', { antialias: antialias, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance' })")
+
+/**
+ * From the browser's cores, memory and touch screen. Never high on its own, since a page does
+ * everything on one thread; it can be turned up in Settings.
+ */
+private fun webTier(): QualityTier = when {
+    !touchScreen() && cores() >= 8 && memoryGb() >= 8.0 -> QualityTier.MEDIUM
+    else -> QualityTier.LOW
+}
 
 /** Keys to [onKey] by code, except while typing. Keys the game uses do nothing else in the page. */
 private fun onKeys(onKey: (String, Boolean) -> Boolean, onLost: () -> Unit): Unit = js("""{
@@ -172,11 +184,10 @@ private fun screensKey(key: String, shift: Boolean): Boolean = js("""{
 }""")
 
 /** What the page gives the app: storage, the canvas, downloads and the file picker. */
-private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
+private class WebHost(private val canvas: HTMLCanvasElement, override val settings: GameSettings) : AppHost {
     lateinit var app: ApogeeApp
 
     override val scope: CoroutineScope = MainScope()
-    override val settings = GameSettings(StoragePreferences())
     override fun folder(name: String): Folder = StorageFolder(name)
 
     /** Pictures are drawn again each visit: there's no room in local storage to keep them. */
@@ -236,14 +247,7 @@ private class WebHost(private val canvas: HTMLCanvasElement) : AppHost {
         canvas.style.display = "none"
     }
 
-    /**
-     * From the browser's cores, memory and touch screen. Never high on its own, since a page does
-     * everything on one thread; it can be turned up in Settings.
-     */
-    override fun detectTier(): QualityTier = when {
-        !touchScreen() && cores() >= 8 && memoryGb() >= 8.0 -> QualityTier.MEDIUM
-        else -> QualityTier.LOW
-    }
+    override fun detectTier(): QualityTier = webTier()
 
     override fun perfHints(): PerfHints? = null
 

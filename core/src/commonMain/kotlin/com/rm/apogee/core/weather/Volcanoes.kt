@@ -1,6 +1,5 @@
 package com.rm.apogee.core.weather
 
-import com.rm.apogee.core.math.StrictMath
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.SolarSystem
 import com.rm.apogee.core.sea.DetMath
@@ -39,6 +38,8 @@ class LiveEruption(
     val halfWidth: Double,
     /** How far downwind its cloud starts, metres: 0 while it erupts, then moving away. */
     val near: Double = 0.0,
+    /** The way its cloud goes over the ground, bending with the wind; [length] and [near] are along it. */
+    val track: AshTrack,
 )
 
 /**
@@ -52,7 +53,8 @@ class LiveEruption(
  * lingers for up to [MAX_AGE] after it was given out. Fewer and weaker near launch sites.
  *
  * The cloud drifts with the mean of the wind at its height over the eruption's life, worked out
- * once per eruption: ash given out at time te is [drift] x (t - te) downwind of the vent, widening
+ * once per eruption along an [AshTrack] that bends with that wind on its way: ash given out at
+ * time te is [drift] x (t - te) along the track from the vent, widening
  * at [SPREAD], thinning as it widens, settling at [SETTLE] and falling out over [FALLOUT]; some
  * falls under the cloud to the ground. All hashed from the seed and the time, so nothing is stored.
  *
@@ -102,10 +104,11 @@ internal class Volcanoes(
         var top = 0.0
         var columnRadius = 0.0
         var width = 0.0
-        /** Unit tangent at the vent along the drift, and the normal of its great circle. */
+        /** Unit tangent at the vent along the drift. */
         val along = Vec3()
-        val side = Vec3()
         var speed = 0.0
+        /** The way its cloud goes, from [along] at the vent. */
+        var track: AshTrack? = null
         /** World seconds past which none of it is left anywhere. */
         var end = 0.0
         /** Unit-sphere chord past which it can't reach, at its oldest. */
@@ -212,7 +215,16 @@ internal class Volcanoes(
             e.along.setTo(east).mulInPlace(sc.cos).addScaledInPlace(north, sc.sin)
         }
         e.speed = speed.coerceIn(SLOWEST, FASTEST)
-        e.side.setTo(e.vent).crossInPlace(e.along).normalizeInPlace()
+        // Bending with the wind met on the way, as the ash given out over its life meets it.
+        val step = e.speed * MAX_AGE / (AshTrack.SEGMENTS - 1)
+        e.track = AshTrack.trace(e.vent, e.along, step, bodyRadius) { p, s, out ->
+            if (drift != null) null else {
+                out.setZero()
+                val late = s / e.speed
+                for (k in 0 until 3) out.addInPlace(weather.ashWind(p, start + 0.5 * k * e.stop + late, height, wind))
+                out
+            }
+        }
         e.end = start + e.stop + MAX_AGE
         val far = e.speed * (e.stop + MAX_AGE) + e.width + SPREAD * MAX_AGE + e.columnRadius
         e.reachChord = min(2.0, far / bodyRadius * 1.02 + 1e-6)
@@ -237,6 +249,7 @@ internal class Volcanoes(
     private var hereAsh = 0.0
     private var hereTop = 0.0
     private var hereColumn = 0.0
+    private val placed = DoubleArray(2)
 
     /**
      * Ash at unit [up], [altitude] metres over datum, at [time], from [e]: into [hereAsh],
@@ -247,11 +260,9 @@ internal class Volcanoes(
         val chord = up.distanceTo(e.vent)
         if (chord > e.reachChord) return
         val age = time - e.start
-        val pv = up dot e.vent
-        val pf = up dot e.along
-        val pg = up dot e.side
-        val along = StrictMath.atan2(pf, pv) * bodyRadius
-        val cross = StrictMath.atan2(pg, sqrt(pv * pv + pf * pf)) * bodyRadius
+        e.track!!.project(up, placed)
+        val along = placed[0]
+        val cross = placed[1]
 
         // The column over the vent, rising as it builds.
         val now = output(e, age)
@@ -338,7 +349,7 @@ internal class Volcanoes(
             val length = if (newestAsh >= MAX_AGE) 0.0 else e.speed * oldest
             out.add(LiveEruption(e.id, e.vent.copy(), e.ventHeight, e.start, age, e.stop + MAX_AGE, e.stop,
                 e.strength * output(e, age), columnTop, e.top, e.columnRadius,
-                Vec3().setTo(e.along).mulInPlace(e.speed), length, e.width + SPREAD * oldest, min(length, e.speed * newestAsh)))
+                Vec3().setTo(e.along).mulInPlace(e.speed), length, e.width + SPREAD * oldest, min(length, e.speed * newestAsh), e.track!!))
         }
     }
 
@@ -369,7 +380,7 @@ internal class Volcanoes(
         val out = ArrayList<LiveEruption>()
         for (e in cy.eruptions) if (e.exists) out.add(LiveEruption(e.id, e.vent.copy(), e.ventHeight, e.start, 0.0,
             e.stop + MAX_AGE, e.stop, e.strength, e.ventHeight, e.top, e.columnRadius,
-            Vec3().setTo(e.along).mulInPlace(e.speed), 0.0, e.width))
+            Vec3().setTo(e.along).mulInPlace(e.speed), 0.0, e.width, track = e.track!!))
         return out
     }
 

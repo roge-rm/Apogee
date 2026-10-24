@@ -218,6 +218,7 @@ class GameSession private constructor(
     /** Debug: leaves out the weather events' items (tornadoes, tsunamis, quake dust, dust, snow and ash). */
     @Volatile var debugHideEventItems = false
     @Volatile var debugHideCloudItems = false
+    @Volatile var debugNoFarFlood = false
     @Volatile var debugNoTsunamiField = false
     @Volatile var debugFreezeTsunamiField = false
     @Volatile var debugHideSolidSmoke = false
@@ -813,6 +814,9 @@ class GameSession private constructor(
         return design.parts.any { placed -> catalog[placed.partId]?.let(test) == true }
     }
 
+    private fun flamedOut(craft: com.rm.apogee.core.craft.Vessel): Boolean = flamedOut(craft, dragForces)
+    private fun rotorLow(craft: com.rm.apogee.core.craft.Vessel): Boolean = rotorLow(craft, dragForces)
+
     /** The flown craft's power and link home, as the server last said. Null until it has. */
     val powerReadout: HudState.PowerReadout?
         get() {
@@ -867,6 +871,8 @@ class GameSession private constructor(
                 keeping = systems.keeping,
                 lift = systems.lift,
                 canRight = systems.canRight,
+                flameout = prediction.replica?.takeIf { it.id.raw == id }?.let { flamedOut(it) } ?: false,
+                rotorLow = prediction.replica?.takeIf { it.id.raw == id }?.let { rotorLow(it) } ?: false,
                 held = prediction.replica?.let { local ->
                     val ore = com.rm.apogee.core.part.ResourceType.ORE
                     val water = com.rm.apogee.core.part.ResourceType.WATER
@@ -2067,7 +2073,7 @@ class GameSession private constructor(
                 bodyFixedCamera,
                 attractor.heightAboveTerrain(focusState.position, bodyFixedCamera),
                 terrainScope,
-                cloudScene?.takeIf { it.body === attractor }?.tsunamis?.field?.flood,
+                cloudScene?.takeIf { it.body === attractor && !debugNoFarFlood }?.tsunamis?.field?.flood,
             )
             builder.requestGlobe(attractor, terrainScope)
             drawFarSurface = builder.farSurfaceNeeded
@@ -2415,6 +2421,12 @@ class GameSession private constructor(
                         clouds == null || clouds.snow.veil == null -> 0f
                         mapMode -> 1f
                         else -> clouds.snow.veilAlpha(clouds.snow.height)
+                    },
+                    ashVeil = clouds?.ash?.veil,
+                    ashVeilAlpha = when {
+                        clouds == null || clouds.ash.veil == null -> 0f
+                        mapMode -> 1f
+                        else -> clouds.ash.veilAlpha(attractor.altitudeOf(cameraPosition))
                     },
                     flatLight = if (underwater || mapMode || clouds == null) 0f else clouds.flatLight,
                     hurricaneVeilAlpha = when {
@@ -3749,6 +3761,8 @@ class GameSession private constructor(
         val target = VesselPose.Values()
         val shown = VesselPose.Values()
         var spin = DoubleArray(0)
+        /** How fast fuel rotors turn for the ash they breathe, eased: 1 in clean air. */
+        var ashSpin = 1.0
         var initialised = false
         /** Its parts' definitions, looked up once for [defsFor] rather than every frame. */
         var defsFor: com.rm.apogee.core.craft.CraftDesign? = null
@@ -5047,7 +5061,11 @@ class GameSession private constructor(
                 val speed = animation.shown.output.getOrElse(index) { 0.0 }
                 val blades = PartModels.blades(def)
                 if (speed > 0.0 && blades != null) {
-                    animation.spin[index] += speed * bladeRate(blades.radius) * animationDt
+                    // Fuel rotors in ash turn slower, down to ASH_SPIN_LEAST. Drawn only.
+                    val ash = if (predicted && rotor.propellant != com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE) prediction.replica?.air?.ash ?: 0.0 else 0.0
+                    val aim = rotorAshSpin(ash, dragForces)
+                    animation.ashSpin += (aim - animation.ashSpin) * (animationDt / ASH_SPIN_EASING).coerceIn(0.0, 1.0)
+                    animation.spin[index] += speed * animation.ashSpin * bladeRate(blades.radius) * animationDt
                     if (!mapMode) {
                         // The flown craft's main rotor tilts its disc the way it's pulling.
                         val tilt = if (predicted && rotor.cyclic > 0.0) {
@@ -5637,6 +5655,43 @@ class GameSession private constructor(
     private fun smooth01(x: Double): Double { val t = x.coerceIn(0.0, 1.0); return t * t * (3 - 2 * t) }
 
     companion object {
+        /** FLAMEOUT shows with the throttle at least this open and an engine giving under this share of its thrust. */
+        const val FLAMEOUT_THROTTLE = 0.05
+        const val FLAMEOUT_LEFT = 0.1
+
+        /** Rotors on fuel never fall below 0.4 of their push, so they show ROTOR LOW under this share instead. */
+        const val ROTOR_CHOKED = 0.5
+
+        /** The share of full turn rate a fuel rotor is drawn at with all its ash push gone (0.4 left), and the seconds it takes to change. */
+        const val ASH_SPIN_LEAST = 0.65
+        const val ASH_SPIN_EASING = 0.6
+
+        /** The drawn turn rate of a fuel rotor in [ash]: 1 in clean air, [ASH_SPIN_LEAST] at the push floor. */
+        fun rotorAshSpin(ash: Double, forces: com.rm.apogee.core.world.Forces): Double {
+            if (ash <= 0.0) return 1.0
+            val left = forces.rotorAshLeft(ash)
+            return ASH_SPIN_LEAST + (1.0 - ASH_SPIN_LEAST) * ((left - 0.4) / 0.6).coerceIn(0.0, 1.0)
+        }
+
+        /** Whether [craft] has an air-breathing jet lit with the throttle up and choked by ash. */
+        fun flamedOut(craft: com.rm.apogee.core.craft.Vessel, forces: com.rm.apogee.core.world.Forces): Boolean {
+            if (craft.control.throttle < FLAMEOUT_THROTTLE || craft.air.ash <= 0.0) return false
+            return craft.activeEngines().any { i ->
+                val engine = craft.defs[i].module<com.rm.apogee.core.part.Engine>()
+                engine != null && forces.ashChoke(engine, craft.air.ash) < FLAMEOUT_LEFT
+            }
+        }
+
+        /** Whether [craft] has a rotor on fuel, throttle up and choked by ash. */
+        fun rotorLow(craft: com.rm.apogee.core.craft.Vessel, forces: com.rm.apogee.core.world.Forces): Boolean {
+            if (craft.control.throttle < FLAMEOUT_THROTTLE || craft.air.ash <= 0.0) return false
+            if (forces.rotorAshLeft(craft.air.ash) >= ROTOR_CHOKED) return false
+            return craft.defs.any { def ->
+                val rotor = def.module<com.rm.apogee.core.part.Rotor>()
+                rotor != null && rotor.propellant != com.rm.apogee.core.part.ResourceType.ELECTRIC_CHARGE
+            }
+        }
+
         /** A lamp's light, lit: warm white, and drawn this much larger for its glare. */
         val LAMP_COLOUR = floatArrayOf(1.0f, 0.9f, 0.62f, 1.0f)
         val LAMP_WHITE = floatArrayOf(0.95f, 0.97f, 1.0f, 1.0f)
@@ -6245,18 +6300,16 @@ class GameSession private constructor(
             for (e in eruptions) {
                 if (e.strength > 0.02) icons += MapIcon(IconKind.ASH, rotation.rotate(Vec3().setTo(e.vent).mulInPlace(radius), Vec3()), ASH_COLOR)
                 if (e.length < 1_000.0) continue
-                val along = Vec3().setTo(e.drift)
-                if (along.lengthSq < 1e-12) continue
-                along.addScaledInPlace(e.vent, -(along dot e.vent)).normalizeInPlace()
-                val side = Vec3().setTo(e.vent).crossInPlace(along).normalizeInPlace()
+                val track = e.track
+                val side = Vec3()
                 val start = AshScene.START_WIDTH
                 // From where it starts (moving off the vent once it stops) to its far end.
                 val near = e.near.coerceIn(0.0, e.length)
                 fun edge(f: Double, k: Double, back: Double = 0.0): Vec3 {
                     val s = near + (e.length - near) * f
-                    val a = (s - back) / radius
                     val w = (start + (e.halfWidth - start).coerceAtLeast(0.0) * s / e.length) * k
-                    val p = Vec3().setTo(e.vent).mulInPlace(kotlin.math.cos(a)).addScaledInPlace(along, kotlin.math.sin(a))
+                    track.sideAt(s, side)
+                    val p = track.pointAt(s - back, Vec3())
                         .addScaledInPlace(side, w / radius).normalizeInPlace().mulInPlace(radius)
                     return rotation.rotate(p, Vec3())
                 }

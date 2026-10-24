@@ -101,6 +101,9 @@ class ExtremeAgreeTest {
             same("$w age", x.age, y.age); same("$w life", x.life, y.life); same("$w strength", x.strength, y.strength)
             same("$w top", x.top, y.top); same("$w column", x.columnTop, y.columnTop); same("$w drift", x.drift, y.drift)
             same("$w length", x.length, y.length); same("$w width", x.halfWidth, y.halfWidth)
+            for (f in listOf(0.3, 0.7, 1.0)) {
+                same("$w track $f", x.track.pointAt(x.track.length * f, Vec3()), y.track.pointAt(y.track.length * f, Vec3()))
+            }
         }
         for ((x, y) in a.hurricanes.zip(b.hurricanes)) {
             val w = "$who hurricane ${x.id}"
@@ -151,12 +154,11 @@ class ExtremeAgreeTest {
         // Each eruption's vent, and along and beside its cloud.
         for (e in l.eruptions) {
             add(e.vent.copy())
-            val heading = e.drift.copy().normalizeInPlace()
-            val side = Vec3().setTo(e.vent).crossInPlace(heading).normalizeInPlace()
             for (f in listOf(0.25, 0.5, 0.8)) {
                 val along = e.length * f
-                add(Vec3().setTo(e.vent).mulInPlace(r).addScaledInPlace(heading, along).normalizeInPlace())
-                add(Vec3().setTo(e.vent).mulInPlace(r).addScaledInPlace(heading, along).addScaledInPlace(side, 0.6 * e.halfWidth).normalizeInPlace())
+                val on = e.track.pointAt(along, Vec3())
+                add(on.copy())
+                add(on.mulInPlace(r).addScaledInPlace(e.track.sideAt(along, Vec3()), 0.6 * e.halfWidth).normalizeInPlace())
             }
         }
         val cape = World.launchSites.first { it.id == "cape" }

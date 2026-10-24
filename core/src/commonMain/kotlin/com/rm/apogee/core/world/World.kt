@@ -5133,10 +5133,10 @@ class World(
         return limit
     }
 
-    /** Whether a storm blizzard may come to where [vessel] is, in cold country, within [BLIZZARD_LOOK] seconds. */
+    /** Whether a storm blizzard or a wind over lying snow that lifts it may come to where [vessel] is, in cold country, within [BLIZZARD_LOOK] seconds. */
     private fun blizzardDue(vessel: Vessel, attractor: CelestialBody): Boolean {
         val weather = weatherFor(attractor) ?: return false
-        if (steadyWind != null || !weather.blizzardsPossible) return false
+        if (steadyWind != null || !weather.snowPossible) return false
         attractor.toBodyFixed(vessel.body.position, attractor.rotationAt(time, chillRotation), chillPoint).normalizeInPlace()
         return weather.blizzardCold(chillPoint) > 0.0 && weather.blizzardDue(chillPoint, time, BLIZZARD_LOOK)
     }

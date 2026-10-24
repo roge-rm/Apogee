@@ -650,7 +650,7 @@ internal class DustStorms(
         if (w != null) {
             val spread = worldSpread(w, time)
             // A chord of the unit sphere to metres along the surface.
-            val arc = 2.0 * kotlin.math.asin(min(spread, 2.0) / 2.0) * bodyRadius
+            val arc = 2.0 * DetMath.asin(min(spread, 2.0) / 2.0) * bodyRadius
             out.add(LiveDust(w.id, DustKind.WORLD, w.origin.copy(), w.origin.copy(), Vec3(), 0.0, 0.0, WORLD_DUST_TOP,
                 arc, worldLife(w, time), time - w.start, w.life))
         }

@@ -190,6 +190,9 @@ class Forces {
         }
     }
 
+    /** The share of a fuel rotor's push left in ash [ash]. */
+    fun rotorAshLeft(ash: Double): Double = com.rm.apogee.core.weather.Volcanoes.propLeft(ash)
+
     /**
      * Fires the thruster blocks: to slide the craft, and when armed, to help turn it whenever the
      * stick or SAS is steering.

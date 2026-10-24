@@ -233,6 +233,18 @@ class HailPictureTest {
                 assertTrue("hail at the camera: ${scene.air.hail}", scene.air.hail > 0.3)
             }
             run {
+                // Near the shaft's side, looking out toward the clear sky with the sun behind: stones near and far in bright light.
+                val air = AirSample()
+                val w = Weather(terra, config)
+                val from = (1..12).map { along(terra, h.centre, right, h.width * it / 24.0) }
+                    .lastOrNull { w.sample(above(terra, it, 3.0), time, air); air.hail > 0.25 } ?: h.centre
+                val camera = above(terra, from, 3.0)
+                val scene = clouds(terra, scope, camera, time, tier)
+                val view = look(camera, above(terra, along(terra, from, right, 3_000.0), 300.0), from)
+                shoot("hail-bright", terra, camera, view, time, dressed(scene, camera, time), scene, sunFor(from, right),
+                    flakes = flakes(scene, camera, view, time))
+            }
+            run {
                 // The shaft from 14 km off, ahead of its storm, from a little way up.
                 val from = along(terra, h.centre, h.heading, 14_000.0)
                 val camera = above(terra, from, 150.0)
@@ -252,6 +264,17 @@ class HailPictureTest {
                 val view = look(camera, above(terra, roverAt, 28.0), from)
                 val fx = flakes(scene, camera, view, time, strike = above(terra, roverAt, 2.4))
                 shoot("lightning-struck", terra, camera, view, time, dressed(scene, camera, time) + rover(roverAt, right), scene, lowSun(from, h.heading),
+                    flakes = fx, flash = 1f)
+            }
+            run {
+                // A rover struck 150 m off, looking up its bolt: the kinks up close.
+                val from = along(terra, h.centre, h.heading, 3_000.0)
+                val roverAt = along(terra, from, h.heading, -150.0)
+                val camera = above(terra, from, 2.0)
+                val scene = clouds(terra, scope, camera, time, tier)
+                val view = look(camera, above(terra, roverAt, 260.0), from)
+                val fx = flakes(scene, camera, view, time, strike = above(terra, roverAt, 2.4))
+                shoot("lightning-close-up", terra, camera, view, time, dressed(scene, camera, time) + rover(roverAt, right), scene, lowSun(from, h.heading),
                     flakes = fx, flash = 1f)
             }
             run {

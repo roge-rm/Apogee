@@ -261,6 +261,9 @@ class WorldView(
     /** Blizzards as white sheets ([SnowVeil]), and how much of them to draw, 0..1. */
     val snowVeil: CloudShell? = null,
     val snowVeilAlpha: Float = 0f,
+    /** Volcanic ash clouds as ribbons along their tracks ([AshVeil]), and how much of them to draw, 0..1. */
+    val ashVeil: CloudShell? = null,
+    val ashVeilAlpha: Float = 0f,
     /** How flat the light is in a whiteout, 0..1: shadows fade out by this much. */
     val flatLight: Float = 0f,
     /** The sea's surface, metres from the body's centre, for the light under it. 0 for no sea. */

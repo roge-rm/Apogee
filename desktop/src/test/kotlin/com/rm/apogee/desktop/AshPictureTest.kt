@@ -52,6 +52,30 @@ class AshPictureTest {
         error("no eruption")
     }
 
+    /** How far [e]'s track bends off the great circle it set out on, metres. */
+    private fun bend(e: LiveEruption): Double {
+        val start = e.track.wayAt(0.0, Vec3())
+        val normal = Vec3().setTo(e.vent).crossInPlace(start).normalizeInPlace()
+        return (1..20).maxOf { k -> kotlin.math.abs(e.track.pointAt(e.length * k / 20.0, Vec3()).dot(normal)) } * terra.radius
+    }
+
+    /** A strong eruption with a long cloud whose track bends the most of those in the first 600 hours, and when. */
+    private fun bentEruption(): Pair<Double, LiveEruption> {
+        val w = Weather(terra, config)
+        var best: Pair<Double, LiveEruption>? = null
+        var t = 6 * 3_600.0
+        while (t < 600 * 3_600.0) {
+            val live = ArrayList<LiveEruption>()
+            w.eruptions(Vec3.unitY(), t, Double.MAX_VALUE, live)
+            for (e in live) {
+                if (e.strength < 0.6 || e.length < 150_000.0 || e.near > 0.0) continue
+                if (best == null || bend(e) > bend(best.second)) best = t to e
+            }
+            t += 1_800.0
+        }
+        return best ?: error("no eruption")
+    }
+
     private fun Any.settle() {
         val listing = javaClass.getDeclaredField("listing").also { it.isAccessible = true }
         val until = System.nanoTime() + 20_000_000_000L
@@ -143,6 +167,7 @@ class AshPictureTest {
                         seaReach = if (sea != null && sea.built) sea.reach else 0.0, tide = here?.tide ?: 0.0, sea = sea?.latest,
                         seaRadius = if (body.terrain!!.hasOcean) body.radius + (here?.tide ?: 0.0) else 0.0,
                         snowVeil = if (veilAlpha > 0f) scene?.snow?.veil else null, snowVeilAlpha = veilAlpha,
+                        ashVeil = scene?.ash?.veil, ashVeilAlpha = scene?.ash?.veilAlpha(altitude) ?: 0f,
                         flatLight = scene?.flatLight ?: 0f, flash = flash,
                         sky = SkyColours.of(body.id),
                     )
@@ -235,8 +260,9 @@ class AshPictureTest {
                 e.strength, e.columnTop, e.top, e.ventHeight, e.length / 1e3, e.drift.length))
             val downwind = Vec3().setTo(e.drift).normalizeInPlace()
             val right = Vec3().setTo(e.vent).crossInPlace(downwind).normalizeInPlace()
-            fun at(ahead: Double, aside: Double) = Vec3().setTo(e.vent).addScaledInPlace(downwind, ahead / terra.radius)
-                .addScaledInPlace(right, aside / terra.radius).normalizeInPlace()
+            // Along its track, which bends with the wind.
+            fun at(ahead: Double, aside: Double) = e.track.pointAt(ahead, Vec3())
+                .addScaledInPlace(e.track.sideAt(ahead, Vec3()), aside / terra.radius).normalizeInPlace()
             fun over(d: Vec3, height: Double) = Vec3().setTo(d).mulInPlace(terra.radius + height)
             // A sun high behind the camera, so it's day.
             fun sunFor(up: Vec3, toward: Vec3) = Vec3().setTo(up).mulInPlace(0.8).addScaledInPlace(toward, -0.5).addScaledInPlace(right, 0.2).normalizeInPlace()
@@ -262,6 +288,32 @@ class AshPictureTest {
                 val target = over(at(70_000.0, 0.0), e.top - 0.3 * (e.top - e.ventHeight))
                 val sun = sunFor(from, toward(camera, target))
                 shoot("ash-plume-air", terra, camera, look(camera, target, from), time, dressed(scene, camera, time, sun), scene, sun)
+            }
+            run {
+                // The cloud from orbit and from high up, on the eruption whose track bends most.
+                val (time, e) = bentEruption()
+                println("  bent: track bends up to %.0f km off its first heading over %.0f km, strength %.2f".format(bend(e) / 1e3, e.length / 1e3, e.strength))
+                fun at(ahead: Double, aside: Double) = e.track.pointAt(ahead, Vec3())
+                    .addScaledInPlace(e.track.sideAt(ahead, Vec3()), aside / terra.radius).normalizeInPlace()
+                val right = Vec3().setTo(e.vent).crossInPlace(Vec3().setTo(e.drift).normalizeInPlace()).normalizeInPlace()
+                val downwind = Vec3().setTo(e.drift).normalizeInPlace()
+                run {
+                    // From orbit, 400 km over the middle of its track.
+                    val middle = at(0.5 * e.length, 0.0)
+                    val camera = over(middle, 400_000.0)
+                    val sun = Vec3().setTo(middle).mulInPlace(0.85).addScaledInPlace(right, 0.5).normalizeInPlace()
+                    val scene = clouds(terra, scope, camera, time, tier)
+                    shoot("ash-orbit", terra, camera, look(camera, over(middle, 0.0), downwind), time, dressed(scene, camera, time, sun), scene, sun)
+                }
+                run {
+                    // From high up, 50 km over the ground 150 km off to its side, looking along it.
+                    val from = at(0.3 * e.length, -150_000.0)
+                    val camera = over(from, 50_000.0)
+                    val target = over(at(0.6 * e.length, 0.0), 0.0)
+                    val sun = Vec3().setTo(from).mulInPlace(0.8).addScaledInPlace(toward(camera, target), -0.5).normalizeInPlace()
+                    val scene = clouds(terra, scope, camera, time, tier)
+                    shoot("ash-high-up", terra, camera, look(camera, target, from), time, dressed(scene, camera, time, sun), scene, sun)
+                }
             }
             run {
                 // On the ground under the cloud where most ash has fallen out of it, by a rover.

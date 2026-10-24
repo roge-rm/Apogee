@@ -1,16 +1,17 @@
 package com.rm.apogee.core.weather
 
+import com.rm.apogee.core.sea.DetMath
+import com.rm.apogee.core.sea.DetMath.asin
+import com.rm.apogee.core.sea.DetMath.cos
+import com.rm.apogee.core.sea.DetMath.exp
+import com.rm.apogee.core.sea.DetMath.ln
+import com.rm.apogee.core.sea.DetMath.sin
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.terrain.Noise
 import kotlin.math.abs
-import kotlin.math.asin
-import kotlin.math.cos
-import kotlin.math.exp
-import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 import com.rm.apogee.core.math.Math
 
 /**
@@ -70,6 +71,7 @@ class Weather(
     private val dir = Vec3()
     private val jetScratch = Vec3()
     private val probe = Vec3()
+    private val lookUp = Vec3()
     private val rotated = Vec3()
     private val descriptor = DoubleArray(TerrainWind.SIZE)
     private val gradient = Vec3()
@@ -528,7 +530,7 @@ class Weather(
         for (s in found) {
             if (storms.envelope(s, time) <= 0.05) continue
             storms.centreAt(s, time, stormCentre)
-            val away = stormCentre.mulInPlace(radius).distanceTo(here) - kotlin.math.hypot(s.halfAlong, s.halfAcross)
+            val away = stormCentre.mulInPlace(radius).distanceTo(here) - DetMath.hypot(s.halfAlong, s.halfAcross)
             if (away > stormReach) continue
             // Keep one storm layout across near/far listings; mesh detail is handled by the renderer.
             out.add(stormShapes.build(s, time, stormDetail) { terrain?.elevation(it) ?: 0.0 }.also { it.drift.setTo(s.steer) })
@@ -912,7 +914,30 @@ class Weather(
     /** Whether a storm blizzard may reach unit [direction] within [look] seconds of [time]. Quick. */
     fun blizzardDue(direction: Vec3, time: Double, look: Double): Boolean {
         probe.setTo(direction).normalizeInPlace()
-        return blizzards.dueNear(probe, time, look)
+        return blizzards.dueNear(probe, time, look) || groundBlizzardDue(lookUp.setTo(probe), time, look)
+    }
+
+    /** Free-wind looks made by [blizzardDue] so far, for tests. */
+    internal var windLooks = 0
+
+    /**
+     * Whether the free wind over snowy ground at unit [up] passes the ground blizzards' threshold
+     * within [look] seconds of [time]. One free-wind look every [WIND_LOOK_STEP] seconds from [time]
+     * to its end, so at most look / WIND_LOOK_STEP + 2 per call, and none off snow. Leans early.
+     */
+    private fun groundBlizzardDue(up: Vec3, time: Double, look: Double): Boolean {
+        if (!blizzards.windy || blizzards.snowCover(up) <= 0.0) return false
+        val e = Vec3(); val n = Vec3()
+        frame(up, e, n)
+        val to = time + look
+        var t = time
+        while (true) {
+            windLooks++
+            circulation(up, e, n, t, free, surfaceInflow = 1.0 - smooth(0.0, 1_500.0, WIND_LOOK_HEIGHT))
+            if (free.length * intensity.wind >= WIND_LOOK_SHARE * Blizzards.GROUND_FROM) return true
+            if (t >= to) return false
+            t = minOf(t + WIND_LOOK_STEP, to)
+        }
     }
 
     /** Whether this world and setting can have blizzards or snow lifted by the wind at all. */
@@ -1063,6 +1088,11 @@ class Weather(
         quakes.force(epicentre, start, magnitude, depth, also)
 
     companion object {
+        /** Ground blizzard look-ahead: seconds between free-wind looks, the height they're at, and the share of the threshold that counts (a little early is fine). */
+        const val WIND_LOOK_STEP = 150.0
+        const val WIND_LOOK_HEIGHT = 3.0
+        const val WIND_LOOK_SHARE = 0.92
+
         /** The seed a weather made from [config] works from, which its parts each salt their own way. */
         internal fun seedOf(config: WeatherConfig): Int = config.seed * 31 + 0x5EA7
 

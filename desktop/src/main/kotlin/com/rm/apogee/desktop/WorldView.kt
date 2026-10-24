@@ -83,6 +83,8 @@ class WorldView {
     private var width = 0
     private var height = 0
     private var samples = 0
+    /** The most MSAA samples used, 4 or what the driver has; LOW detail uses none. */
+    private var mostSamples = 0
     private val fbo = IntArray(2)
     private val colour = IntArray(2)
     private var depth = 0
@@ -151,8 +153,9 @@ class WorldView {
             glEnable(org.lwjgl.opengl.GL43C.GL_DEBUG_OUTPUT_SYNCHRONOUS)
         }
         rendererName = glGetString(GL_RENDERER).orEmpty()
-        samples = minOf(4, glGetInteger(GL_MAX_SAMPLES))
-        Log.i(TAG, "GL ${glGetString(GL_VERSION)} on $rendererName, ${samples}x MSAA")
+        mostSamples = minOf(4, glGetInteger(GL_MAX_SAMPLES))
+        samples = mostSamples
+        Log.i(TAG, "GL ${glGetString(GL_VERSION)} on $rendererName, up to ${mostSamples}x MSAA")
         width = 0; height = 0
         return true
     }
@@ -170,6 +173,9 @@ class WorldView {
     private fun drawFrame(r: GlRenderer) {
         val w = wantWidth
         val h = wantHeight
+        // No antialiasing on LOW detail, for the frame rate; the buffers are made again at once.
+        val wantSamples = if (r.qualityTier == com.rm.apogee.render.QualityTier.LOW) 0 else mostSamples
+        if (wantSamples != samples) { samples = wantSamples; freeBuffers() }
         if (w != width || h != height) {
             freeBuffers()
             makeBuffers(w, h)

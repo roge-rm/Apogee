@@ -185,10 +185,14 @@ class MainActivity : ComponentActivity(), AppHost {
             // Keep the context across pauses, so meshes and shaders aren't rebuilt.
             preserveEGLContextOnPause = true
             // 4x MSAA where the device has it, else none. Without it facet edges crawl as the
-            // camera moves. Tile-based GPUs resolve it on chip, so it's cheap.
+            // camera moves. Tile-based GPUs resolve it on chip, so it's cheap, but on LOW detail
+            // it's off for the frame rate. The config is fixed with the surface, so a change of
+            // detail shows the next time the world's view is made.
+            val tier = settings.effectiveTier ?: QualityTier.detect(this@MainActivity)
             val samples = when {
                 BuildConfig.PERF && File(getExternalFilesDir(null), "debug-no-msaa").exists() -> 0
                 BuildConfig.PERF && File(getExternalFilesDir(null), "debug-2x-msaa").exists() -> 2
+                tier == QualityTier.LOW -> 0
                 else -> 4
             }
             setEGLConfigChooser(MultisampleConfigChooser(samples))

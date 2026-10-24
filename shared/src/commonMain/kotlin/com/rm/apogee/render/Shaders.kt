@@ -247,8 +247,10 @@ object Shaders {
                 // none where two fronts meet and the time hardly changes.
                 white = tsunamiBand(s, -min(8.0, 150.0 * slow), 0.0, blur) * smoothstep(0.0015, 0.004, slow);
             }
-            // The sea behind the front a little paler.
-            white = max(white, 0.12 * smoothstep(-blur, blur, s) * (1.0 - smoothstep(30.0, 240.0, s)));
+            // The sea behind the front a little paler. Out at sea, not where two fronts meet and the
+            // time hardly changes, or it spreads into wide pale wedges.
+            float meet = w > 0.0 ? 1.0 : smoothstep(0.0015, 0.004, slow);
+            white = max(white, 0.12 * smoothstep(-blur, blur, s) * (1.0 - smoothstep(30.0, 240.0, s)) * meet);
             // Nothing where a pixel spans minutes: the edge of the train, or a triangle that's half dry.
             return white * abs(w) * (1.0 - smoothstep(30.0, 90.0, blur));
         }

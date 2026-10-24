@@ -803,5 +803,6 @@ object Protocol {
     // 35: rails coast looks more often near moons, which shifts crossing times.
     // 36: solid boosters: ResourceType.SOLID_FUEL, Engine.solid, the Flint.
     // 37: only human pilots and active flight computers hold warp; unattended craft coast or fall.
-    const val VERSION = 37
+    // 38: wind, storms, ash and thermals use DetMath, so desktop and phones get the same weather.
+    const val VERSION = 38
 }

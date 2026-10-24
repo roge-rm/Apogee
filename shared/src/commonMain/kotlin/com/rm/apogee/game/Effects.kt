@@ -819,6 +819,7 @@ class Effects(tier: QualityTier) {
         val seed = (id xor (id ushr 32)).toInt()
         var drift = 0.0; var driftN = 0.0
         var last = 0.0
+        var x = 0.0; var y = 0.0
         val main = ArrayList<Vec3>(BOLT_MAIN + 1)
         for (k in 0..BOLT_MAIN) {
             val u = k.toDouble() / BOLT_MAIN
@@ -829,9 +830,16 @@ class Effects(tier: QualityTier) {
             drift += (Noise.hash(seed, k, 1, 0) - 0.5) * 0.6 * step
             driftN += (Noise.hash(seed, k, 2, 0) - 0.5) * 0.6 * step
             val kink = if (k == 0 || k == BOLT_MAIN) 0.0 else 1.4 * step
-            main.add(Vec3().setTo(ground).addScaledInPlace(up, h)
-                .addScaledInPlace(east, if (k == 0) 0.0 else drift + (Noise.hash(seed, k, 10, 0) - 0.5) * kink)
-                .addScaledInPlace(north, if (k == 0) 0.0 else driftN + (Noise.hash(seed, k, 10, 1) - 0.5) * kink))
+            if (k > 0) {
+                // Each piece leans at most BOLT_LEAN of its rise to the side, so it never folds back.
+                var dx = drift + (Noise.hash(seed, k, 10, 0) - 0.5) * kink - x
+                var dy = driftN + (Noise.hash(seed, k, 10, 1) - 0.5) * kink - y
+                val sideways = kotlin.math.sqrt(dx * dx + dy * dy)
+                val most = BOLT_LEAN * step
+                if (sideways > most) { dx *= most / sideways; dy *= most / sideways }
+                x += dx; y += dy
+            }
+            main.add(Vec3().setTo(ground).addScaledInPlace(up, h).addScaledInPlace(east, x).addScaledInPlace(north, y))
         }
         val branches = ArrayList<List<Vec3>>(7)
         val count = 3 + (Noise.hash(seed, 0, 20, 0) * 3).toInt()
@@ -1522,11 +1530,11 @@ class Effects(tier: QualityTier) {
             val r = colour[i * 4] * light[0]; val g = colour[i * 4 + 1] * light[1]; val b = colour[i * 4 + 2] * light[2]
             if (pellets[i]) {
                 // A hailstone: a round stone however fast it falls, never under HAIL_SEEN across
-                // as seen, in a bright rim.
+                // as seen, in a dark rim so it shows against a bright sky and far off.
                 val stone = max(size.toDouble(), p.length * HAIL_SEEN)
-                // Ice catches what light there is: brighter than rain, its rim brighter still.
-                o = hexagon(v, o, p, right, upAxis, stone * 1.3, min(1f, r * 2f), min(1f, g * 2f), min(1f, b * 2f), alpha * 0.85f)
-                o = hexagon(v, o, p, right, upAxis, stone, min(1f, r * 1.4f), min(1f, g * 1.4f), min(1f, b * 1.4f), alpha)
+                // Ice catches what light there is: brighter than rain.
+                o = hexagon(v, o, p, right, upAxis, stone * 1.6, r * 0.3f, g * 0.3f, b * 0.3f, alpha * 0.75f)
+                o = hexagon(v, o, p, right, upAxis, stone * 1.25, min(1f, r * 1.8f), min(1f, g * 1.8f), min(1f, b * 1.8f), alpha)
                 written++
             } else if (motes[i]) {
                 // An ash fleck: pale grey in a dark rim so it shows against the haze, held to its
@@ -1632,7 +1640,7 @@ class Effects(tier: QualityTier) {
     /**
      * [points] into [out] with each segment in view that looks longer than [BOLT_SPLIT] radians
      * from the camera split in two, and again, up to [BOLT_LEVELS] times, each new point kinked off the
-     * line by up to about half its piece. The kinks come from [seed], [line] and where they fall,
+     * line by up to about a third of its piece. The kinks come from [seed], [line] and where they fall,
      * so a closer look only adds to the shape. At most [budget] new points; returns how many.
      */
     private fun refine(points: List<Vec3>, seed: Int, line: Int, budget: Int, out: ArrayList<Vec3>): Int {
@@ -1677,7 +1685,7 @@ class Effects(tier: QualityTier) {
         scratch2.setTo(b).subInPlace(a)
         // Across the piece only, so it stays as long as it was.
         m.addScaledInPlace(scratch2, -(m dot scratch2) / max(scratch2.lengthSq, 1e-9))
-        m.mulInPlace(0.9 * length).addInPlace(a).addScaledInPlace(scratch2, 0.5)
+        m.mulInPlace(0.5 * length).addInPlace(a).addScaledInPlace(scratch2, 0.5)
         if (level < levels) split(a, m, seed, key, level + 1, path * 2, levels, out)
         out.add(pooled().setTo(m))
         if (level < levels) split(m, b, seed, key, level + 1, path * 2 + 1, levels, out)
@@ -1950,6 +1958,8 @@ class Effects(tier: QualityTier) {
         const val BOLT_SECONDS = 0.45
         /** Segments in a bolt's main channel and in each branch. */
         const val BOLT_MAIN = 48
+        /** How far a main channel piece can go sideways, as a share of how far it rises. */
+        const val BOLT_LEAN = 0.8
         const val BOLT_BRANCH = 8
         /** A bolt segment longer than this as seen, in radians, is split, at most this many times over and into this many new points a bolt. */
         const val BOLT_SPLIT = 0.012

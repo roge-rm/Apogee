@@ -7,6 +7,7 @@ import com.rm.apogee.core.math.StrictMath
  * Sine, cosine and exp that give the same bits on every machine, since each machine works out the
  * sea itself and wave sums must agree exactly. Range reduction and a fixed polynomial using only
  * IEEE add and multiply. [StrictMath] is too slow for tens of thousands of terms a frame.
+ * Weather uses it too, as wind, storms and ash feed physics on server and replica alike.
  */
 internal object DetMath {
 
@@ -72,6 +73,54 @@ internal object DetMath {
         val e = exp(2.0 * x)
         return (e - 1.0) / (e + 1.0)
     }
+
+    /** Natural log, within 4 ulp. Splits off the power of two from the bits, then a series in (m - 1) / (m + 1). */
+    fun ln(x: Double): Double {
+        if (x.isNaN() || x < 0.0) return Double.NaN
+        if (x == 0.0) return Double.NEGATIVE_INFINITY
+        if (x == Double.POSITIVE_INFINITY) return x
+        val bits = x.toRawBits()
+        var e = ((bits ushr 52) and 0x7FFL).toInt()
+        if (e == 0) return ln(x * TWO_54) - 54.0 * LN2_HI - 54.0 * LN2_LO   // subnormal
+        e -= 1023
+        var m = Double.fromBits((bits and 0x000F_FFFF_FFFF_FFFFL) or 0x3FF0_0000_0000_0000L)   // 1..2
+        if (m > SQRT2) { m *= 0.5; e += 1 }   // 0.71..1.41, so |s| is under 0.172
+        val s = (m - 1.0) / (m + 1.0)
+        val s2 = s * s
+        val series = s * (2.0 + s2 * (L3 + s2 * (L5 + s2 * (L7 + s2 * (L9 + s2 * (L11 + s2 * (L13 + s2 * (L15 + s2 * (L17 + s2 * (L19 + s2 * L21))))))))))
+        return e * LN2_HI + (series + e * LN2_LO)
+    }
+
+    /** Arc tangent of y / x in -pi..pi, from [StrictMath], which is the same on every JVM and Android. */
+    fun atan2(y: Double, x: Double): Double = StrictMath.atan2(y, x)
+
+    /** Arc sine, from [atan2], within 2 ulp. [x] is clamped to -1..1. */
+    fun asin(x: Double): Double {
+        val c = x.coerceIn(-1.0, 1.0)
+        return StrictMath.atan2(c, kotlin.math.sqrt((1.0 - c) * (1.0 + c)))
+    }
+
+    /** Arc cosine, from [atan2], within 2 ulp. [x] is clamped to -1..1. */
+    fun acos(x: Double): Double {
+        val c = x.coerceIn(-1.0, 1.0)
+        return StrictMath.atan2(kotlin.math.sqrt((1.0 - c) * (1.0 + c)), c)
+    }
+
+    /** Length of (x, y). Plain IEEE square root, so exact to the bit everywhere; no overflow guard. */
+    fun hypot(x: Double, y: Double): Double = kotlin.math.sqrt(x * x + y * y)
+
+    private const val TWO_54 = 18_014_398_509_481_984.0
+    private const val SQRT2 = 1.4142135623730951
+    private const val L3 = 2.0 / 3.0
+    private const val L5 = 2.0 / 5.0
+    private const val L7 = 2.0 / 7.0
+    private const val L9 = 2.0 / 9.0
+    private const val L11 = 2.0 / 11.0
+    private const val L13 = 2.0 / 13.0
+    private const val L15 = 2.0 / 15.0
+    private const val L17 = 2.0 / 17.0
+    private const val L19 = 2.0 / 19.0
+    private const val L21 = 2.0 / 21.0
 
     private const val S3 = -1.0 / 6.0
     private const val S5 = 1.0 / 120.0

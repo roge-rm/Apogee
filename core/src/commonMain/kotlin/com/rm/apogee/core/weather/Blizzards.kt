@@ -95,6 +95,9 @@ internal class Blizzards(
 
     val active = stormy || ground > 0.0
 
+    /** Whether windy days lift snow off the ground at all. */
+    val windy: Boolean get() = ground > 0.0
+
     /** Off in tests, to compare the air with and without blizzards, and with and without launch sites. */
     internal var enabled = true
     internal var shySites = true

@@ -1905,6 +1905,8 @@ class ApogeeApp(private val host: AppHost) {
             current.debugHideSea = host.debugSwitch("debug-no-sea")
             current.debugHideEventItems = host.debugSwitch("debug-no-event-items")
             current.debugHideCloudItems = host.debugSwitch("debug-no-cloud-items")
+            current.debugNoFarFlood = host.debugSwitch("debug-no-far-flood")
+            glRenderer.debugNoAshVeil = host.debugSwitch("debug-no-ash-veil")
             current.debugNoTsunamiField = host.debugSwitch("debug-no-tsunami-field")
             current.debugFreezeTsunamiField = host.debugSwitch("debug-freeze-tsunami-field")
             glRenderer.debugNoTsunamiTerrain = host.debugSwitch("debug-no-tsunami-terrain")

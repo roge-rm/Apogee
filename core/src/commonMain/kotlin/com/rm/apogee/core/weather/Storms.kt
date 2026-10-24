@@ -1,9 +1,10 @@
 package com.rm.apogee.core.weather
 
+import com.rm.apogee.core.sea.DetMath
+import com.rm.apogee.core.sea.DetMath.exp
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.terrain.Noise
 import kotlin.math.abs
-import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -135,7 +136,7 @@ internal class Storms(
         var stratiform = 0.0
 
         /** How far from its centre any part reaches, in metres: base, towers and gust front. */
-        val reach: Double get() = kotlin.math.abs(deckAlong) + kotlin.math.hypot(halfAlong, halfAcross) + 3.0 * core + 4_000.0
+        val reach: Double get() = kotlin.math.abs(deckAlong) + DetMath.hypot(halfAlong, halfAcross) + 3.0 * core + 4_000.0
 
         /** The tallest tower. */
         val mainCell: Int get() {
@@ -222,7 +223,7 @@ internal class Storms(
                     for (t in 0 until extra) {
                         val a = h(81 + t) * 2.0 * Math.PI
                         val r = (1.2 + 0.4 * h(83 + t)) * s.core
-                        addCell(s, kotlin.math.cos(a) * r, kotlin.math.sin(a) * r, s.core * (0.5 + 0.2 * h(85 + t)), 0.45 + 0.35 * h(86 + t), (h(90 + t) - 0.5) * 0.2)
+                        addCell(s, DetMath.cos(a) * r, DetMath.sin(a) * r, s.core * (0.5 + 0.2 * h(85 + t)), 0.45 + 0.35 * h(86 + t), (h(90 + t) - 0.5) * 0.2)
                     }
                     fitDeck(s, 1.6)
                     s.shaftAlong = 0.5
@@ -448,7 +449,7 @@ internal class Storms(
                 if (life <= 0.0) continue
                 val r = s.cellRadius[i]
                 val dx = along - s.cellAlong[i]; val dy = across - s.cellAcross[i]
-                val d = kotlin.math.hypot(dx, dy)
+                val d = DetMath.hypot(dx, dy)
                 if (d > r * 6.0) continue
                 val top = cellTop(s, i, time)
 
@@ -460,7 +461,7 @@ internal class Storms(
                 }
                 // Its rain and the downdraught in it.
                 val sx = dx - s.shaftAlong * r
-                val dShaft = kotlin.math.hypot(sx, dy)
+                val dShaft = DetMath.hypot(sx, dy)
                 if (altitude < s.base + 500.0) {
                     val w = -DOWNDRAUGHT * power * life * exp(-(dShaft / (0.7 * r)).let { it * it }) * smooth(0.0, 200.0, agl)
                     out.lift += w
@@ -522,7 +523,7 @@ internal class Storms(
             val main = s.mainCell
             val anvilHeight = cellTop(s, main, time) - 800.0
             val anvilAlong = s.cellAlong[main] + 0.8 * s.core + s.lean * s.core
-            val ah = kotlin.math.hypot((along - anvilAlong) / anvilHalfAlong(s), (across - anvilAcross(s)) / anvilHalfAcross(s))
+            val ah = DetMath.hypot((along - anvilAlong) / anvilHalfAlong(s), (across - anvilAcross(s)) / anvilHalfAcross(s))
             val av = (altitude - anvilHeight) / 900.0
             density = max(density, 1.0 - ah * ah - av * av)
             if (density > 0.0) addCloud(out, (density * 2.0).coerceAtMost(1.0) * envelope, climate.stormCloud)
@@ -561,7 +562,7 @@ internal class Storms(
             val across = hailRel dot hailRight
             for (i in 0 until s.cellCount) {
                 val r = s.cellRadius[i]
-                val dShaft = kotlin.math.hypot(along - s.cellAlong[i] - s.shaftAlong * r, across - s.cellAcross[i])
+                val dShaft = DetMath.hypot(along - s.cellAlong[i] - s.shaftAlong * r, across - s.cellAcross[i])
                 if (dShaft > 4.0 * r) continue
                 most = max(most, hailFrom(s, i, dShaft, altitude, time))
             }
@@ -692,7 +693,7 @@ internal class Storms(
                 // Out from the biggest tower, and on along the track.
                 val main = s.mainCell
                 val ra = along - s.cellAlong[main]; val rc = across - s.cellAcross[main]
-                val rl = kotlin.math.hypot(ra, rc).coerceAtLeast(1.0)
+                val rl = DetMath.hypot(ra, rc).coerceAtLeast(1.0)
                 out.stormDirection.setTo(seaTrack).mulInPlace(1.0 + 0.7 * ra / rl).addScaledInPlace(seaRight, 0.7 * rc / rl)
             }
             out.stormDirection.addScaledInPlace(up, -(out.stormDirection dot up))
@@ -704,7 +705,7 @@ internal class Storms(
         val cellCentre = Vec3()
         for (k in 0 until far) {
             cells.centre(seaKeys[k], cellCentre)
-            val distance0 = kotlin.math.acos((cellCentre dot up).coerceIn(-1.0, 1.0)) * bodyRadius
+            val distance0 = DetMath.acos((cellCentre dot up).coerceIn(-1.0, 1.0)) * bodyRadius
             if (distance0 > SWELL_REACH) continue
             val then = time - distance0 / SWELL_GROUP_SPEED
             val s = storm(seaKeys[k], then)
@@ -712,7 +713,7 @@ internal class Storms(
             val env = envelope(s, then) * s.strength
             if (env <= 0.0) continue
             centreAt(s, then, seaCentre)
-            val distance = kotlin.math.acos((seaCentre dot up).coerceIn(-1.0, 1.0)) * bodyRadius
+            val distance = DetMath.acos((seaCentre dot up).coerceIn(-1.0, 1.0)) * bodyRadius
             val source = kotlin.math.max(s.halfAlong, s.halfAcross)
             if (distance < source) continue
             val hs = STORM_SEA_HS * power * SWELL_SHARE * env * kotlin.math.sqrt(source / distance) *
@@ -851,7 +852,7 @@ internal class Storms(
                 val radius = 0.7 * s.cellRadius[cell] * Noise.hash(seed + 82, s.cx, s.cy, c)
                 val where = place(
                     at, track, side,
-                    s.cellAlong[cell] + kotlin.math.cos(angle) * radius, s.cellAcross[cell] + kotlin.math.sin(angle) * radius,
+                    s.cellAlong[cell] + DetMath.cos(angle) * radius, s.cellAcross[cell] + DetMath.sin(angle) * radius,
                     1.0, Vec3(),
                 )
                 val id = ((s.cx.toLong() shl 40) xor (s.cy.toLong() shl 20) xor (s.cycle shl 8)) * 4_096 + index

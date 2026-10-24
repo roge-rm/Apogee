@@ -251,10 +251,8 @@ class WeatherWarningsTest {
     @Test
     fun `an eruption warns near its vent, its ash cloud as it nears, and is a danger in thick ash`() {
         val (time, e) = AshSceneTest.eruption(weather)
-        val along = Vec3().setTo(e.drift).normalizeInPlace()
-        val side = Vec3().setTo(e.vent).crossInPlace(along).normalizeInPlace()
         fun at(ahead: Double, aside: Double, height: Double): Vec3 {
-            val p = Vec3().setTo(e.vent).addScaledInPlace(along, ahead / radius).addScaledInPlace(side, aside / radius).normalizeInPlace()
+            val p = e.track.pointAt(ahead, Vec3()).addScaledInPlace(e.track.sideAt(ahead, Vec3()), aside / radius).normalizeInPlace()
             return p.mulInPlace(radius + height)
         }
         fun ash(p: Vec3) = warnings().all(p, time).firstOrNull { (it.kind == WeatherWarnings.Kind.ASH || it.kind == WeatherWarnings.Kind.ERUPTION) && it.id == e.id }
@@ -287,6 +285,18 @@ class WeatherWarningsTest {
     }
 
     @Test
+    fun `no ash warning on the far side of the world from a cloud`() {
+        val (time, e) = AshSceneTest.eruption(weather)
+        for (k in 0..e.track.segments) {
+            val back = e.track.pointAt(k * e.track.step, Vec3()).mulInPlace(-1.0)
+            for (height in listOf(2_000.0, 0.5 * (e.top + e.ventHeight))) {
+                val got = warnings().all(Vec3().setTo(back).mulInPlace(radius + height), time).filter { it.id == e.id }
+                assertTrue("antipode of point $k, $height m: ${got.map { it.text }}", got.isEmpty())
+            }
+        }
+    }
+
+    @Test
     fun `once an eruption stops its cloud moves off and the vent is clear`() {
         val (_, e) = AshSceneTest.eruption(weather)
         val later = e.start + e.emitting + 1.5 * 3_600.0
@@ -295,8 +305,7 @@ class WeatherWarningsTest {
         val gone = live.single { it.id == e.id }
         println("stopped: cloud %.0f to %.0f km, strength %.2f".format(gone.near / 1e3, gone.length / 1e3, gone.strength))
         assertTrue("moved off: ${gone.near}", gone.near > 50_000.0 && gone.near < gone.length)
-        val along = Vec3().setTo(gone.drift).normalizeInPlace()
-        fun at(ahead: Double) = Vec3().setTo(e.vent).addScaledInPlace(along, ahead / radius).normalizeInPlace().mulInPlace(radius + e.ventHeight + 2_000.0)
+        fun at(ahead: Double) = gone.track.pointAt(ahead, Vec3()).mulInPlace(radius + e.ventHeight + 2_000.0)
         fun ash(p: Vec3) = warnings().all(p, later).firstOrNull { (it.kind == WeatherWarnings.Kind.ASH || it.kind == WeatherWarnings.Kind.ERUPTION) && it.id == e.id }
         assertNull("none by the clear vent", ash(at(0.0)))
         assertEquals("in what's left of the cloud", WeatherWarnings.Kind.ASH, ash(at(0.5 * (gone.near + gone.length)))?.kind)

@@ -1,14 +1,15 @@
 package com.rm.apogee.core.weather
 
+import com.rm.apogee.core.sea.DetMath
+import com.rm.apogee.core.sea.DetMath.atan2
+import com.rm.apogee.core.sea.DetMath.cos
+import com.rm.apogee.core.sea.DetMath.hypot
+import com.rm.apogee.core.sea.DetMath.sin
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.terrain.SurfaceMaterial
 import com.rm.apogee.core.terrain.Terrain
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.floor
-import kotlin.math.hypot
 import kotlin.math.max
-import kotlin.math.sin
 import kotlin.math.sqrt
 import com.rm.apogee.core.math.Math
 import com.rm.apogee.core.lruMapOf

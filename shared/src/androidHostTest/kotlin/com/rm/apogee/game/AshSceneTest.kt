@@ -49,12 +49,9 @@ class AshSceneTest {
         return s
     }
 
-    /** Unit point [metres] from [e]'s vent, [ahead] downwind and [aside] across. */
-    private fun from(e: LiveEruption, ahead: Double, aside: Double): Vec3 {
-        val along = Vec3().setTo(e.drift).normalizeInPlace()
-        val side = Vec3().setTo(e.vent).crossInPlace(along).normalizeInPlace()
-        return Vec3().setTo(e.vent).addScaledInPlace(along, ahead / radius).addScaledInPlace(side, aside / radius).normalizeInPlace()
-    }
+    /** Unit point [ahead] metres along [e]'s track and [aside] across. */
+    private fun from(e: LiveEruption, ahead: Double, aside: Double): Vec3 =
+        e.track.pointAt(ahead, Vec3()).addScaledInPlace(e.track.sideAt(ahead, Vec3()), aside / radius).normalizeInPlace()
 
     @Test
     fun `an eruption is drawn within budget, keeps its keys and is gone far off and high up`() {
@@ -163,8 +160,11 @@ class AshSceneTest {
         assertTrue("at the vent", icon.at.distanceTo(Vec3().setTo(e.vent).mulInPlace(radius)) < 1.0)
         val outline = lines.single().points
         val far = outline.maxOf { it.distanceTo(icon.at) }
-        println("cloud %.0f km long, outline reaches %.0f km".format(e.length / 1e3, far / 1e3))
-        assertTrue("out to its far end", far > 0.9 * e.length && far < e.length + 2 * e.halfWidth)
+        val end = e.track.pointAt(e.length, Vec3()).mulInPlace(radius)
+        val toEnd = outline.minOf { it.distanceTo(end) }
+        println("cloud %.0f km long, outline reaches %.0f km, %.1f km from its track's far end".format(e.length / 1e3, far / 1e3, toEnd / 1e3))
+        assertTrue("out to its far end: $toEnd", toEnd < 1.1 * e.halfWidth)
+        assertTrue("no further: $far", far < e.length + 2 * e.halfWidth)
     }
 
     companion object {

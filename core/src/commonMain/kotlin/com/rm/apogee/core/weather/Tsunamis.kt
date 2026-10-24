@@ -633,7 +633,7 @@ internal class Tsunamis(
             else if (since - face - BORE_BAND > 0.0 && since - face - BORE_BAND < LINES_SPAN + blur) {
                 // Only behind the face and its band, as the shader draws them (Shaders.TSUNAMI_FOAM).
                 val behind = since - face - BORE_BAND
-                val line = 0.5 + 0.5 * kotlin.math.cos(2.0 * kotlin.math.PI * behind / BORE_LINES)
+                val line = 0.5 + 0.5 * DetMath.cos(2.0 * kotlin.math.PI * behind / BORE_LINES)
                 // Too fine to draw, the lines go; further behind, they thin out rather than fade,
                 // so a facet is white or not. Under 1, which only the front band reaches.
                 val sharp = 1.0 - smooth(BORE_LINES * 0.12, BORE_LINES * 0.25, blur)

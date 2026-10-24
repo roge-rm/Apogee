@@ -3,6 +3,7 @@ package com.rm.apogee.core.weather
 import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.orbit.CelestialBody
 import com.rm.apogee.core.orbit.SolarSystem
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -307,5 +308,50 @@ class BlizzardTest {
         val slots = (kotlin.math.floor(t / Blizzards.SLOT) - kotlin.math.floor(start / Blizzards.SLOT) + 1).toLong()
         println("${places.size} places, ${4_000 * places.size} samples: ${model.relisted} lists made, $us us a sample")
         assertTrue(model.relisted <= places.size * slots)
+    }
+
+    @Test
+    fun `a coming wind over snow is seen before it lifts the snow, a few looks a check`() {
+        val w = Weather(terra, extreme)
+        val air = AirSample()
+        val rnd = java.util.Random(11)
+        var found = 0
+        var worst = 0
+        var quietSeen = false
+        repeat(300) {
+            if (found >= 5) return@repeat
+            val lat = if (rnd.nextBoolean()) -70.0 - 18 * rnd.nextDouble() else 72.0 + 15 * rnd.nextDouble()
+            val d = direction(lat, 360 * rnd.nextDouble())
+            if (w.snowCover(d) < 0.5) return@repeat
+            val from = rnd.nextDouble() * 400 * 3_600.0
+            // The first minute in the next two hours with snow drifting and no storm blizzard near.
+            var t = from
+            while (t < from + 7_200.0) {
+                val storm = live(w, t).any { it.centre.distanceTo(d) * terra.radius < it.reach + 20_000.0 }
+                w.sample(over(terra, d, 3.0), t, air)
+                if (!storm && air.snow > 0.02) break
+                t += 60.0
+            }
+            if (t >= from + 7_200.0 || t - from < 1_200.0) return@repeat
+            found++
+            val stormNear = (0..20).any { k -> live(w, t - 1_000.0 + 50.0 * k).any { it.centre.distanceTo(d) * terra.radius < it.reach + 20_000.0 } }
+            if (stormNear) { found--; return@repeat }
+            // Well before the wind arrives nothing is due; 900 s before, with the wind inside the look, it is.
+            // No drift in the minutes before it, so a short look from there has nothing to find.
+            if (generateSequence(from) { it + 60.0 }.takeWhile { it <= t - 300.0 }.any { !w.blizzardDue(d, it, 200.0) }) quietSeen = true
+            val before = w.windLooks
+            assertTrue("seen coming at ${t - 900.0}", w.blizzardDue(d, t - 900.0, 1_000.0))
+            worst = maxOf(worst, w.windLooks - before)
+        }
+        println("$found places, at most $worst free-wind looks a check")
+        assertTrue(found > 0)
+        assertTrue("something due at every quiet minute: an always-true check", quietSeen)
+        assertTrue("looks a check: $worst", worst <= (1_000.0 / Weather.WIND_LOOK_STEP).toInt() + 2)
+        // Off snow nothing is looked at.
+        val before = w.windLooks
+        val bare = direction(0.0, 20.0)
+        assertEquals(0.0, w.snowCover(bare), 0.0)
+        w.blizzardDue(bare, 5_000.0, 1_000.0)
+        assertEquals(before, w.windLooks)
     }
 }

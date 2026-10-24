@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Tsunami
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Grain
 import androidx.compose.material.icons.filled.Volcano
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -132,6 +133,8 @@ fun StatusRow(
         }
         if (power != null) {
             if (power.stunned > 0f) add(StatusChip("struck", Icons.Filled.Bolt, "STRUCK", ApogeeColors.Danger, true, null))
+            if (power.flameout) add(StatusChip("flameout", Icons.Filled.LocalFireDepartment, "FLAMEOUT", ApogeeColors.Danger, true, null))
+            else if (power.rotorLow) add(StatusChip("flameout", Icons.Filled.LocalFireDepartment, "ROTOR LOW", ApogeeColors.Danger, true, null))
             if (!power.powered) add(StatusChip("power", Icons.Filled.BatteryAlert, "NO POWER", ApogeeColors.Danger, true, null))
             else if (power.low) add(StatusChip("power", Icons.Filled.BatteryAlert, percent(power.share.toDouble()), ApogeeColors.Caution, false, null))
             if (power.needsSignal && power.powered && power.blocked == "NO SIGNAL") {

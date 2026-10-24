@@ -17,7 +17,6 @@ import com.rm.apogee.render.StackCaps
 import kotlinx.coroutines.launch
 import kotlin.concurrent.Volatile
 import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 
@@ -119,7 +118,7 @@ class AshScene(
         val eruption: LiveEruption,
         val listedAt: Double,
         val key: Long,
-        /** Unit, body-fixed: the way it drifts at the vent, and the normal of its great circle. */
+        /** Unit, body-fixed: the way it drifts at the vent, and its side there. */
         val along: Vec3,
         val side: Vec3,
         /** Per station, every [LiveEruption.length] / ([STATIONS] - 1) from the vent: ash 0..1, its top over datum, half width, ground. */
@@ -128,11 +127,11 @@ class AshScene(
         val width: DoubleArray,
         val ground: DoubleArray,
     ) {
-        /** Unit point [s] metres downwind of the vent along its way, into [out]. */
-        fun pointAt(s: Double, radius: Double, out: Vec3): Vec3 {
-            val a = s / radius
-            return out.setTo(eruption.vent).mulInPlace(cos(a)).addScaledInPlace(along, sin(a))
-        }
+        /** Unit point [s] metres downwind of the vent along its track, into [out]. */
+        fun pointAt(s: Double, out: Vec3): Vec3 = eruption.track.pointAt(s, out)
+
+        /** The unit side of its track [s] metres downwind, into [out]. */
+        fun sideAt(s: Double, out: Vec3): Vec3 = eruption.track.sideAt(s, out)
 
         /** [values] at [s] metres along, between its stations. */
         fun at(values: DoubleArray, s: Double): Double {
@@ -152,6 +151,11 @@ class AshScene(
     /** Every eruption on the world, as last listed for the map. */
     @Volatile var all: List<LiveEruption> = emptyList()
         private set
+
+    /** The eruptions' clouds as a veil from high up and on the map, or null for none. */
+    @Volatile var veil: com.rm.apogee.render.CloudShell? = null
+        private set
+    private var mapAt = Double.NEGATIVE_INFINITY
 
     @Volatile private var listing = false
     private var listedAt = Double.NEGATIVE_INFINITY
@@ -179,7 +183,9 @@ class AshScene(
         val nearDue = altitude < LIST_TOP &&
             (kotlin.math.abs(time - listedAt) >= RELIST_SECONDS || camera.distanceTo(listedFrom) >= RELIST_DISTANCE)
         val now = com.rm.apogee.platform.System.nanoTime()
-        val allDue = allWanted && kotlin.math.abs(time - allAt) >= WORLD_RELIST_SECONDS &&
+        // Low down and off the map, the veil's not shown: let it go.
+        if (altitude < PUFFS_FADE && kotlin.math.abs(time - mapAt) > MAP_KEEP && veil != null) veil = null
+        val allDue = (allWanted || altitude > PUFFS_FADE) && kotlin.math.abs(time - allAt) >= WORLD_RELIST_SECONDS &&
             (allNanos == 0L || now - allNanos >= WORLD_RELIST_NANOS)
         if (!nearDue && !allDue) {
             if (altitude >= LIST_TOP && plumes.isNotEmpty()) { plumes = emptyList(); overhead = 0.0 }
@@ -192,6 +198,7 @@ class AshScene(
             if (plumes.isNotEmpty()) plumes = emptyList()
             overhead = 0.0
             if (all.isNotEmpty()) all = emptyList()
+            veil = null
             return
         }
         val from = camera.copy()
@@ -206,6 +213,9 @@ class AshScene(
                     val live = ArrayList<LiveEruption>()
                     weather.eruptions(Vec3.unitY(), time, Double.MAX_VALUE, live)
                     all = live
+                    val terrain = body.terrain!!
+                    veil = com.rm.apogee.render.AshVeil.build(live, body.radius, VEIL_REVISIONS.incrementAndGet().toInt(), START_WIDTH,
+                        ground = { kotlin.math.max(terrain.elevation(it), if (terrain.hasOcean) 0.0 else -1e9) })
                 }
             } finally {
                 listing = false
@@ -217,6 +227,9 @@ class AshScene(
     fun forMap(camera: Vec3, time: Double): List<LiveEruption> {
         if (!active) return emptyList()
         allWanted = true
+        // Just opened: list the world again now so the veil is back at once.
+        if (kotlin.math.abs(time - mapAt) > MAP_KEEP && veil == null) { allAt = Double.NEGATIVE_INFINITY; allNanos = 0L }
+        mapAt = time
         list(camera, time)
         return all
     }
@@ -231,9 +244,8 @@ class AshScene(
         val near = live.sortedBy { it.vent.distanceTo(centre) }.take(most)
         val p = Vec3()
         return near.map { e ->
-            val along = Vec3().setTo(e.drift).also { if (it.lengthSq < 1e-12) it.setTo(1.0, 0.0, 0.0) }
-            along.addScaledInPlace(e.vent, -(along dot e.vent)).normalizeInPlace()
-            val side = Vec3().setTo(e.vent).crossInPlace(along).normalizeInPlace()
+            val along = e.track.wayAt(0.0, Vec3())
+            val side = e.track.sideAt(0.0, Vec3())
             val n = STATIONS
             val ash = DoubleArray(n); val top = DoubleArray(n); val width = DoubleArray(n); val ground = DoubleArray(n)
             val rise = (e.top - e.ventHeight).coerceAtLeast(1_000.0)
@@ -241,7 +253,7 @@ class AshScene(
                 along, side, ash, top, width, ground)
             for (i in 0 until n) {
                 val s = e.length * i / (n - 1)
-                plume.pointAt(s, body.radius, p)
+                plume.pointAt(s, p)
                 ground[i] = kotlin.math.max(terrain.elevation(p), if (terrain.hasOcean) 0.0 else -1e9)
                 // The thickest of a few heights down from the cloud's top, and its top there.
                 var most = 0.0; var at = 0.0
@@ -282,12 +294,16 @@ class AshScene(
     private val nearShapes = Array(CloudShapes.VARIANTS) { CloudPuff(it, false, 2) }
     private val point = Vec3()
     private val pointUp = Vec3()
+    private val sideHere = Vec3()
     private val placed = Vec3()
     private val upright = Quat()
     private val turn = Quat()
 
     /** How much to draw from a camera [altitude] metres up, 0..1: fading out high up. */
     fun weight(altitude: Double): Double = 1.0 - smooth(PUFFS_FADE, LIST_TOP, altitude)
+
+    /** How much of the veil to draw from a camera [altitude] metres up, 0..1: coming in as the puffs fade. */
+    fun veilAlpha(altitude: Double): Float = smooth(PUFFS_FADE, LIST_TOP, altitude).toFloat()
 
     /**
      * Eruptions near body-fixed [camera] turned to where the planet is at [bodyRotation], to [out],
@@ -445,7 +461,8 @@ class AshScene(
             val sideways = halfWidth * (0.45 * sin(2.0 * PI * 1.7 * wave + 5.0 * hash(key * 3 + 1)) + 0.25 * sin(2.0 * PI * 4.3 * wave + 5.0 * hash(key * 3 + 2)))
             val upDown = depth * (0.22 * sin(2.0 * PI * 2.3 * wave + 5.0 * hash(key * 3 + 3)) + 0.12 * (2.0 * hash((g * 89 + key).toInt()) - 1.0))
             val mid = kotlin.math.max(cloudTop - 0.5 * depth + upDown, groundHere + tall)
-            p.pointAt(s, radius, pointUp)
+            p.pointAt(s, pointUp)
+            p.sideAt(s, sideHere)
             fromTo(UNIT_Y, pointUp, upright)
             // One to three puffs across, so they stay round where it's wide, and a round billow on
             // top somewhere across, so its top is lumpy.
@@ -458,7 +475,7 @@ class AshScene(
                 val wide = if (billow) 1.1 * tall * (0.8 + 0.4 * hash((g * 67 + key).toInt()))
                     else kotlin.math.max(halfWidth / across * 1.25 * (0.85 + 0.3 * hash((g * 53 + c + key).toInt())), 0.7 * spacing)
                 val lift = if (billow) 0.75 * tall else tall * 0.3 * (2.0 * hash((g * 71 + c + key).toInt()) - 1.0)
-                placed.setTo(pointUp).mulInPlace(radius + mid + lift).addScaledInPlace(p.side, off + sideways)
+                placed.setTo(pointUp).mulInPlace(radius + mid + lift).addScaledInPlace(sideHere, off + sideways)
                 val far = placed.distanceTo(camera)
                 if (far > reach + wide) continue
                 val fade = (1.0 - smooth(0.7 * reach, reach, far)) * smooth(NEAR_CLEAR, NEAR_SOLID, far - tall) * weight * ends * (1.0 - 0.6 * farOn)
@@ -484,7 +501,7 @@ class AshScene(
                 val base = mid - tall
                 val drop = base - groundHere
                 if (drop > 300.0) {
-                    placed.setTo(pointUp).mulInPlace(radius + groundHere + 0.5 * drop).addScaledInPlace(p.side, sideways)
+                    placed.setTo(pointUp).mulInPlace(radius + groundHere + 0.5 * drop).addScaledInPlace(sideHere, sideways)
                     val far = placed.distanceTo(camera)
                     val fade = (1.0 - smooth(0.7 * reach, reach, far)) * smooth(NEAR_CLEAR, NEAR_SOLID, far - halfWidth) * weight * ends * (1.0 - 0.6 * farOn)
                     val a = FALL_ALPHA * ash.pow(0.5) * fade
@@ -600,6 +617,9 @@ class AshScene(
         const val GROUND_MOVED = 500.0
         const val WORLD_RELIST_SECONDS = 20.0
         const val WORLD_RELIST_NANOS = 1_000_000_000L
+        /** The veil's kept this many game seconds after the map last asked for it. */
+        const val MAP_KEEP = 2.0
+        val VEIL_REVISIONS = com.rm.apogee.platform.AtomicLong(3_000_000L)
 
         /** Stations along a cloud's way, and heights tried at each. */
         const val STATIONS = 16

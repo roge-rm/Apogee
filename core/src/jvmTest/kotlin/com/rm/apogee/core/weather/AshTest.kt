@@ -40,6 +40,10 @@ class AshTest {
         return Vec3().setTo(d).mulInPlace(body.radius).addScaledInPlace(heading, along).addScaledInPlace(side, across).normalizeInPlace()
     }
 
+    /** Unit point [along] metres along [e]'s track and [across] metres to its side. */
+    private fun on(e: LiveEruption, along: Double, across: Double = 0.0): Vec3 =
+        e.track.pointAt(along, Vec3()).mulInPlace(terra.radius).addScaledInPlace(e.track.sideAt(along, Vec3()), across).normalizeInPlace()
+
     private fun air(w: Weather, body: CelestialBody, d: Vec3, altitude: Double, time: Double): AirSample =
         w.sample(Vec3().setTo(d).mulInPlace(body.radius + altitude), time, AirSample())
 
@@ -125,11 +129,10 @@ class AshTest {
     fun `the cloud drifts downwind, cuts sight and falls to the ground`() {
         val (t, e) = busy
         val w = Weather(terra, extreme)
-        val heading = e.drift.copy().normalizeInPlace()
         val height = e.top - 0.25 * Volcanoes.DEPTH * (e.top - e.ventHeight)
-        val down = air(w, terra, step(terra, e.vent, heading, 60_000.0), height, t)
-        val up = air(w, terra, step(terra, e.vent, heading, -60_000.0), height, t)
-        val aside = air(w, terra, step(terra, e.vent, heading, 60_000.0, 40_000.0), height, t)
+        val down = air(w, terra, on(e, 60_000.0), height, t)
+        val up = air(w, terra, on(e, -60_000.0), height, t)
+        val aside = air(w, terra, on(e, 60_000.0, 40_000.0), height, t)
         println("eruption ${e.id} at ${t / 3_600.0} h: drift ${e.drift.length} m/s, top ${e.top} m; ash downwind ${down.ash}, upwind ${up.ash}, aside ${aside.ash}; sight ${down.visibility} m")
         assertTrue("downwind ${down.ash}", down.ash > 0.15)
         assertEquals(0.0, up.ash, 0.0)
@@ -137,7 +140,7 @@ class AshTest {
         assertTrue("sight ${down.visibility}", down.visibility <= Volcanoes.ASH_SIGHT / down.ash + 1e-9 && down.visibility < 1_000.0)
         assertTrue("ash top ${down.ashTop}", down.ashTop > height)
         // Under ash an hour old, some has fallen to the ground; well above the cloud, none.
-        val under = step(terra, e.vent, heading, e.drift.length * 3_600.0)
+        val under = on(e, e.drift.length * 3_600.0)
         val ground = maxOf(terra.terrain!!.elevation(under), 0.0)
         val low = air(w, terra, under, ground + 50.0, t)
         val high = air(w, terra, under, e.top + 3_000.0, t)
@@ -148,7 +151,7 @@ class AshTest {
         val column = air(w, terra, e.vent, e.ventHeight + 2_000.0, t)
         assertTrue("column ${column.ash}", column.ash > 0.4)
         // Carried further the longer it goes: ash given out an hour ago is about drift x 1 h off.
-        val further = air(w, terra, step(terra, e.vent, heading, e.drift.length * 3_600.0), height, t)
+        val further = air(w, terra, on(e, e.drift.length * 3_600.0), height, t)
         assertTrue("an hour downwind ${further.ash}", further.ash > 0.1)
     }
 
@@ -156,19 +159,18 @@ class AshTest {
     fun `no steps through the cloud or as it goes by`() {
         val (t, e) = busy
         val w = Weather(terra, extreme)
-        val heading = e.drift.copy().normalizeInPlace()
         val height = e.top - 0.4 * Volcanoes.DEPTH * (e.top - e.ventHeight)
         var worst = 0.0
         var last = Double.NaN
         // Across the cloud 40 km downwind, every 50 m.
         for (k in -800..800) {
-            val a = air(w, terra, step(terra, e.vent, heading, 40_000.0, k * 50.0), height, t).ash
+            val a = air(w, terra, on(e, 40_000.0, k * 50.0), height, t).ash
             if (!last.isNaN()) worst = maxOf(worst, kotlin.math.abs(a - last))
             last = a
         }
         // Up through it, every 20 m.
         last = Double.NaN
-        val d = step(terra, e.vent, heading, 40_000.0)
+        val d = on(e, 40_000.0)
         var h = 0.0
         while (h < e.top + 3_000.0) {
             val a = air(w, terra, d, h, t).ash
@@ -203,6 +205,110 @@ class AshTest {
         assertTrue(w.ashLive(t))
         val listed = ArrayList<LiveEruption>(); w.eruptions(vent, t, 10_000.0, listed)
         assertEquals(1, listed.size)
+    }
+
+    @Test
+    fun `the track bends with a changing wind and stays smooth`() {
+        val r = terra.radius
+        val vent = SolarSystem.surfaceDirection(Math.toRadians(10.0), Math.toRadians(20.0))
+        val east = Vec3(); val north = Vec3(); frame(vent, east, north)
+        val startSide = Vec3().setTo(vent).crossInPlace(east).normalizeInPlace()
+        // East for the first 100 km, then north.
+        val bent = AshTrack.trace(vent, east, 10_000.0, r) { p, s, out ->
+            val e = Vec3(); val n = Vec3(); frame(p, e, n)
+            out.setTo(if (s < 100_000.0) e else n)
+        }
+        val straight = AshTrack.trace(vent, east, 10_000.0, r) { _, _, _ -> null }
+        val bentOff = kotlin.math.abs(bent.pointAt(bent.length, Vec3()) dot startSide) * r
+        val straightOff = kotlin.math.abs(straight.pointAt(straight.length, Vec3()) dot startSide) * r
+        println("track end off its first great circle: bent ${bentOff / 1e3} km, straight $straightOff m")
+        assertTrue("bent $bentOff", bentOff > 80_000.0)
+        assertTrue("straight $straightOff", straightOff < 1.0)
+        // Points beside it are found where they were put.
+        val got = DoubleArray(2)
+        for (k in 1..46) for (aside in listOf(-6_000.0, 0.0, 4_000.0)) {
+            val s = k * 5_000.0
+            val p = bent.pointAt(s, Vec3()).mulInPlace(r).addScaledInPlace(bent.sideAt(s, Vec3()), aside).normalizeInPlace()
+            bent.project(p, got)
+            assertEquals("along at $s, $aside", s, got[0], 1_000.0)
+            assertEquals("off at $s, $aside", kotlin.math.abs(aside), got[1], 100.0)
+        }
+        // No jumps going by it on either side of the bend, every 100 m.
+        for (aside in listOf(-15_000.0, 15_000.0)) {
+            var last: DoubleArray? = null
+            var worstAlong = 0.0; var worstOff = 0.0
+            for (k in 0..2_000) {
+                val s = k * 100.0
+                val p = bent.pointAt(s, Vec3()).mulInPlace(r).addScaledInPlace(bent.sideAt(s, Vec3()), aside).normalizeInPlace()
+                val now = bent.project(p, DoubleArray(2))
+                last?.let { worstAlong = maxOf(worstAlong, kotlin.math.abs(now[0] - it[0])); worstOff = maxOf(worstOff, kotlin.math.abs(now[1] - it[1])) }
+                last = now
+            }
+            println("by the bend at $aside m: largest step along $worstAlong m, off $worstOff m")
+            assertTrue("along $worstAlong", worstAlong < 400.0)
+            assertTrue("off $worstOff", worstOff < 100.0)
+        }
+    }
+
+    @Test
+    fun `nothing on the far side of the world from the track`() {
+        val r = terra.radius
+        val vent = SolarSystem.surfaceDirection(Math.toRadians(10.0), Math.toRadians(20.0))
+        val east = Vec3(); val north = Vec3(); frame(vent, east, north)
+        val bent = AshTrack.trace(vent, east, 10_000.0, r) { p, s, out ->
+            val e = Vec3(); val n = Vec3(); frame(p, e, n)
+            out.setTo(if (s < 100_000.0) e else n)
+        }
+        val straight = AshTrack.trace(vent, east, 10_000.0, r) { _, _, _ -> null }
+        val got = DoubleArray(2)
+        for (track in listOf(bent, straight, busy.second.track)) for (k in 0..track.segments) {
+            val back = track.pointAt(k * track.step, Vec3()).mulInPlace(-1.0)
+            track.project(back, got)
+            assertTrue("antipode of point $k: off ${got[1]}", got[1] > r)
+        }
+        // A hashed cloud and a forced straight one: no ash at the antipodes of their track points.
+        val (t, e) = busy
+        val w = Weather(terra, extreme)
+        val forced = Weather(terra, extreme)
+        forced.forceEruption(vent, 0.0, 1.0, Vec3().setTo(east).mulInPlace(20.0))
+        val listed = ArrayList<LiveEruption>(); forced.eruptions(vent, 2 * 3_600.0, 10_000.0, listed)
+        for ((weather, live, time) in listOf(Triple(w, e, t), Triple(forced, listed.single(), 2 * 3_600.0))) {
+            for (k in 0..live.track.segments) {
+                val back = live.track.pointAt(k * live.track.step, Vec3()).mulInPlace(-1.0)
+                for (height in listOf(2_000.0, 0.5 * (live.top + live.ventHeight), live.top - 200.0))
+                    assertEquals("ash at the antipode of point $k, $height m", 0.0, air(weather, terra, back, height, time).ash, 0.0)
+            }
+        }
+    }
+
+    @Test
+    fun `a hashed cloud follows its bending track`() {
+        val w = Weather(terra, extreme)
+        var most = 0.0
+        var found: Pair<Double, LiveEruption>? = null
+        var t = 6 * 3_600.0
+        while (t < 600 * 3_600.0) {
+            val out = ArrayList<LiveEruption>()
+            w.eruptions(Vec3.unitY(), t, Double.MAX_VALUE, out)
+            for (e in out) {
+                if (e.strength < 0.5 || e.age < 2.5 * 3_600.0 || e.age > e.emitting - 1_800.0 || e.length < 80_000.0) continue
+                // Off the great circle it set out on, where the ash given out an hour and a half ago is.
+                val side = Vec3().setTo(e.vent).crossInPlace(e.drift).normalizeInPlace()
+                val off = kotlin.math.abs(e.track.pointAt(e.drift.length * 5_400.0, Vec3()) dot side) * terra.radius
+                if (off > most) { most = off; found = t to e }
+            }
+            t += 3_600.0
+        }
+        val (at, e) = found!!
+        val height = e.top - 0.25 * Volcanoes.DEPTH * (e.top - e.ventHeight)
+        val far = e.drift.length * 5_400.0
+        val heading = e.drift.copy().normalizeInPlace()
+        val onTrack = air(w, terra, on(e, far), height, at).ash
+        val straight = air(w, terra, step(terra, e.vent, heading, far), height, at).ash
+        println("most bent: eruption ${e.id}, cloud ${e.length / 1e3} km, ${most / 1e3} km off a great circle at ${far / 1e3} km; ash at ${far / 1e3} km on its track $onTrack, straight on $straight")
+        assertTrue("bends $most", most > 10_000.0)
+        assertTrue("on its track $onTrack", onTrack > 0.05)
+        assertEquals("straight on", 0.0, straight, 0.0)
     }
 
     private fun lit(design: CraftDesign): Vessel {

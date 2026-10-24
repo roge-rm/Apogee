@@ -325,6 +325,10 @@ class HudState {
         val lift: Float = -1f,
         /** Gone over, and small enough for its crew to roll it back upright. */
         val canRight: Boolean = false,
+        /** A jet lit with the throttle up has all but stopped in volcanic ash. */
+        val flameout: Boolean = false,
+        /** A fuel rotor with the throttle up has lost much of its push in volcanic ash. */
+        val rotorLow: Boolean = false,
     ) {
         /** Whether it's holding height and heading. */
         val cruising: Boolean get() = cruiseHeight >= 0f
