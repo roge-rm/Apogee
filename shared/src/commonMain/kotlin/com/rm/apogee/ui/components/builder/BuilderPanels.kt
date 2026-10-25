@@ -209,6 +209,8 @@ fun PartActionBar(
             )
             if (!selection.root) {
                 Action(if (selection.count > 1) "DELETE ${selection.count}" else "DELETE", ApogeeColors.Danger, onDelete)
+            }
+            if (!selection.root && !selection.loose) {
                 Action("COPY", ApogeeColors.Accent, onCopy)
                 Action("TURN", ApogeeColors.Accent, onTurn)
             }
@@ -220,7 +222,7 @@ fun PartActionBar(
                 modifier = Modifier.clip(CircleShape).clickable(onClick = onClose).padding(8.dp).size(16.dp),
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 94.dp, end = 4.dp, bottom = 2.dp)) {
+        if (!selection.loose) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 94.dp, end = 4.dp, bottom = 2.dp)) {
             if (selection.groupable) {
                 Action(if (selection.group > 0) "GROUP ${selection.group}" else "NO GROUP", if (selection.group > 0) ApogeeColors.Prograde else Color.White.alpha(ApogeeAlpha.SECONDARY), onGroup)
             }

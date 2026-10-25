@@ -49,6 +49,7 @@ fun main() {
     onKeys(
         { code, down -> app.key(code, down) },
         { app.releaseKeys() },
+        { app.buildingKeys },
     )
     host.startGamepad()
     document.getElementById("loading")?.remove()
@@ -71,12 +72,12 @@ private fun webTier(): QualityTier = when {
 }
 
 /** Keys to [onKey] by code, except while typing. Keys the game uses do nothing else in the page. */
-private fun onKeys(onKey: (String, Boolean) -> Boolean, onLost: () -> Unit): Unit = js("""{
+private fun onKeys(onKey: (String, Boolean) -> Boolean, onLost: () -> Unit, building: () -> Boolean): Unit = js("""{
     const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable); };
     const handle = (e, down) => {
         // Keys the controller sends to work the menus aren't the keyboard flying.
         if (!e.isTrusted || e.metaKey || e.altKey || typing()) return;
-        if (e.ctrlKey && !e.code.startsWith('Control')) return;
+        if (e.ctrlKey && !e.code.startsWith('Control') && !building()) return;
         if (onKey(e.code, down)) e.preventDefault();
     };
     window.addEventListener('keydown', (e) => handle(e, true));

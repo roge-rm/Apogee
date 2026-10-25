@@ -875,6 +875,7 @@ class GlRenderer(
                 program.setFloat("uDiscardNearer", 0f)
             }
             program.setFloat("uMorph", 1f - entry.detailAt(morphFocus) * arrival)
+            program.setFloat("uSkirtDrop", TerrainChunk.skirtDrop(world.radius, chunk.key.level).toFloat())
             modelMatrix.setFromTrs(scratchChunkCentre, interpolatedBodyRotation, cameraPos)
             program.setMat4("uModel", modelMatrix.m)
             mesh.drawQuadrants(entry.quadrants)

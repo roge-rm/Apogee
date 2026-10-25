@@ -55,6 +55,9 @@ interface AppHost {
     /** Whether typing is on a real keyboard: a desktop, or a browser without a touch screen. */
     val keyboardFirst: Boolean get() = false
 
+    /** The interface size Auto picks, as a multiple of 1, where Settings can change the size; null elsewhere. */
+    val autoInterfaceScale: Float? get() = null
+
     /** Whether the window can be put in full screen from Settings: a desktop or a browser. */
     val canFullScreen: Boolean get() = false
 

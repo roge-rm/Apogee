@@ -75,4 +75,38 @@ class BuilderGesturesTest {
         assertEquals(0f, log.orbited)
         assertTrue(log.events.isEmpty())
     }
+
+    @Test
+    fun `a mouse drag from a part lifts it at once`() {
+        val log = Log(); val g = BuilderGestures(log)
+        g.down(100f, 100f, 0, mouse = true)
+        g.move(110f, 100f)
+        assertTrue("under the slop, nothing yet", log.events.isEmpty())
+        g.move(160f, 120f); g.move(200f, 150f); g.up(200f, 150f, 200)
+        assertEquals(listOf("long", "carry", "carry", "drop"), log.events)
+        assertEquals(0f, log.orbited)
+    }
+
+    @Test
+    fun `a mouse drag from empty space turns the view, and a click is a tap`() {
+        val log = Log(canLift = false); val g = BuilderGestures(log)
+        g.down(100f, 100f, 0, mouse = true)
+        g.move(160f, 100f); g.move(200f, 100f); g.up(200f, 100f, 200)
+        assertEquals(listOf("long"), log.events)
+        assertEquals(100f, log.orbited, 0.01f)
+        assertEquals(0f, log.panned)
+        g.down(50f, 50f, 1000, mouse = true); g.up(52f, 50f, 1050)
+        assertEquals("tap", log.events.last())
+    }
+
+    @Test
+    fun `the tap distance follows the screen density`() {
+        val log = Log(); val g = BuilderGestures(log)
+        g.scale = 2f
+        g.down(100f, 100f, 0); g.move(140f, 100f); g.up(140f, 100f, 100)
+        assertEquals(listOf("tap"), log.events)
+        val plain = Log(); val h = BuilderGestures(plain)
+        h.down(100f, 100f, 0); h.move(140f, 100f); h.up(140f, 100f, 100)
+        assertTrue(plain.events.isEmpty())
+    }
 }

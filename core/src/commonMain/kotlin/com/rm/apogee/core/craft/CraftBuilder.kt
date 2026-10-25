@@ -27,6 +27,13 @@ enum class SymmetryMode(val count: Int, val label: String) {
     companion object {
         fun offeredFor(orientation: CraftOrientation): List<SymmetryMode> =
             if (orientation == CraftOrientation.HORIZONTAL) listOf(NONE, MIRROR) else entries
+
+        /** The mode that puts [copies] pieces back on, as many as came off. */
+        fun forCopies(copies: Int, orientation: CraftOrientation): SymmetryMode = when {
+            copies <= 1 -> NONE
+            orientation == CraftOrientation.HORIZONTAL -> MIRROR
+            else -> entries.firstOrNull { it.count == copies } ?: NONE
+        }
     }
 }
 
@@ -49,8 +56,18 @@ class CraftBuilder(
     var symmetry: SymmetryMode = SymmetryMode.NONE
         get() = if (field in SymmetryMode.offeredFor(orientation)) field else SymmetryMode.MIRROR
 
-    private val undoStack = ArrayDeque<CraftDesign>()
-    private val redoStack = ArrayDeque<CraftDesign>()
+    /**
+     * Pieces lifted off and left on the floor, not part of [design]. Undo covers them with the
+     * design.
+     */
+    var loose: List<LoosePiece> = emptyList()
+        private set
+
+    /** One undo step: the design and what was loose beside it. */
+    private class Snapshot(val design: CraftDesign, val loose: List<LoosePiece>)
+
+    private val undoStack = ArrayDeque<Snapshot>()
+    private val redoStack = ArrayDeque<Snapshot>()
 
     val isEmpty: Boolean get() = design.parts.isEmpty()
     val partCount: Int get() = design.parts.size
@@ -126,6 +143,71 @@ class CraftBuilder(
         return done.added
     }
 
+    /**
+     * Puts [assembly] into the joint where part [child] hangs, moving [child] and what's below it
+     * out onto the new piece. See [Assemblies.insert]. Returns the indices added, or empty.
+     */
+    fun insert(assembly: Assembly, child: Int): List<Int> {
+        val done = Assemblies.insert(design, assembly, child, catalog) ?: return emptyList()
+        mutate { Attachment.settled(done.design, catalog) }
+        return done.added
+    }
+
+    /**
+     * Moves part [index] (with partners and everything below) into the joint above [child], a part
+     * of [lift]'s [Assemblies.Lift.rest]. One undo step.
+     */
+    fun moveInsert(index: Int, child: Int): List<Int> {
+        val lifted = lift(index) ?: return emptyList()
+        val done = Assemblies.insert(lifted.rest, lifted.assembly, child, catalog, lifted.copies) ?: return emptyList()
+        mutate { Attachment.settled(done.design, catalog) }
+        return done.added
+    }
+
+    // --- loose pieces ------------------------------------------------------------
+
+    /**
+     * Lifts part [index] (with partners and everything below) off the craft and leaves it on the
+     * floor, its first part moved to [position]. False for the root.
+     */
+    fun park(index: Int, position: Vec3): Boolean {
+        val lifted = lift(index) ?: return false
+        val piece = LoosePiece.of(lifted.assembly, position, design.parts[index].rotation, lifted.copies)
+        mutateFloor { _, loose -> lifted.rest to loose + piece }
+        return true
+    }
+
+    /** Moves loose piece [index] so its first part is at [position]. */
+    fun moveLoose(index: Int, position: Vec3): Boolean {
+        val piece = loose.getOrNull(index) ?: return false
+        mutateFloor { d, loose -> d to loose.mapIndexed { i, p -> if (i == index) piece.copy(position = position.copy()) else p } }
+        return true
+    }
+
+    /** Joins loose piece [index] onto [target], as many copies as came off. Returns the indices added. */
+    fun attachLoose(index: Int, target: OpenNode): List<Int> {
+        val piece = loose.getOrNull(index) ?: return emptyList()
+        val symmetry = SymmetryMode.forCopies(piece.copies, design.orientation)
+        val done = Assemblies.attach(design, piece.assembly, target, symmetry, catalog) ?: return emptyList()
+        mutateFloor { _, loose -> Attachment.settled(done.design, catalog) to loose.filterIndexed { i, _ -> i != index } }
+        return done.added
+    }
+
+    /** Puts loose piece [index] into the joint above [child]. Returns the indices added. */
+    fun insertLoose(index: Int, child: Int): List<Int> {
+        val piece = loose.getOrNull(index) ?: return emptyList()
+        val done = Assemblies.insert(design, piece.assembly, child, catalog, piece.copies) ?: return emptyList()
+        mutateFloor { _, loose -> Attachment.settled(done.design, catalog) to loose.filterIndexed { i, _ -> i != index } }
+        return done.added
+    }
+
+    /** Throws loose piece [index] away. */
+    fun removeLoose(index: Int): Boolean {
+        if (index !in loose.indices) return false
+        mutateFloor { d, loose -> d to loose.filterIndexed { i, _ -> i != index } }
+        return true
+    }
+
     /** A copy of part [index] and everything below it, to put somewhere else. */
     fun duplicate(index: Int): Assembly? = Assemblies.extract(design, index)
 
@@ -192,27 +274,30 @@ class CraftBuilder(
 
     fun undo(): Boolean {
         val previous = undoStack.removeLastOrNull() ?: return false
-        redoStack.addLast(design)
-        design = previous
+        redoStack.addLast(Snapshot(design, loose))
+        design = previous.design
+        loose = previous.loose
         return true
     }
 
     fun redo(): Boolean {
         val next = redoStack.removeLastOrNull() ?: return false
-        undoStack.addLast(design)
-        design = next
+        undoStack.addLast(Snapshot(design, loose))
+        design = next.design
+        loose = next.loose
         return true
     }
 
     fun clear() {
         // Keeps the orientation: clearing a plane starts another plane.
-        mutate {
-            CraftDesign("Untitled", emptyList(), emptyList(), catalog.contentHash, it.orientation)
+        mutateFloor { d, _ ->
+            CraftDesign("Untitled", emptyList(), emptyList(), catalog.contentHash, d.orientation) to emptyList()
         }
     }
 
-    fun load(loaded: CraftDesign) {
-        mutate { Assemblies.repairSymmetricParents(loaded, catalog) }
+    /** [loaded] onto the floor in place of what's there, with [withLoose] beside it. */
+    fun load(loaded: CraftDesign, withLoose: List<LoosePiece> = emptyList()) {
+        mutateFloor { _, _ -> Assemblies.repairSymmetricParents(loaded, catalog) to withLoose }
     }
 
     /** Rebuilds staging from the structure. See [autoStage]. */
@@ -288,11 +373,14 @@ class CraftBuilder(
         mutate { it.copy(stages = transform(it.stages), manualStaging = true) }
     }
 
-    private fun mutate(transform: (CraftDesign) -> CraftDesign) {
-        undoStack.addLast(design)
+    private fun mutate(transform: (CraftDesign) -> CraftDesign) = mutateFloor { d, loose -> transform(d) to loose }
+
+    private fun mutateFloor(transform: (CraftDesign, List<LoosePiece>) -> Pair<CraftDesign, List<LoosePiece>>) {
+        undoStack.addLast(Snapshot(design, loose))
         if (undoStack.size > MAX_UNDO) undoStack.removeFirst()
         redoStack.clear()
-        val updated = transform(design)
+        val (updated, nowLoose) = transform(design, loose)
+        loose = nowLoose
         // Structure changes break staging, so it's rebuilt every time, unless you arranged it
         // yourself; then it's kept and only adjusted for parts added or removed.
         design = updated.copy(

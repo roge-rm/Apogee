@@ -1,7 +1,10 @@
 package com.rm.apogee.core.craft
 
 import com.rm.apogee.core.Folder
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 /** A saved design, as the load list shows it. */
 class SavedCraft(
@@ -43,9 +46,24 @@ class CraftStore(private val directory: Folder) {
         SavedCraft(design.name, name, design.parts.size, directory.lastModified(name))
     }
 
-    /** The assembly floor, kept apart from the player's named craft. Empty designs are kept too. */
-    fun saveWorking(design: CraftDesign): Result<Unit> = runCatching {
-        directory.write(WORKING_FILE, format.encodeToString(design))
+    /**
+     * The assembly floor, kept apart from the player's named craft. Empty designs are kept too.
+     * [loose] pieces go in a field of their own beside the design's, which a design ignores.
+     */
+    fun saveWorking(design: CraftDesign, loose: List<LoosePiece> = emptyList()): Result<Unit> = runCatching {
+        val text = if (loose.isEmpty()) format.encodeToString(design) else {
+            val fields = format.encodeToJsonElement(CraftDesign.serializer(), design).jsonObject.toMutableMap()
+            fields[LOOSE_FIELD] = format.encodeToJsonElement(ListSerializer(LoosePiece.serializer()), loose)
+            format.encodeToString(JsonObject.serializer(), JsonObject(fields))
+        }
+        directory.write(WORKING_FILE, text)
+    }
+
+    /** The loose pieces on the assembly floor. Empty for files from before there were any. */
+    fun loadLoose(): Result<List<LoosePiece>> = runCatching {
+        val text = directory.read(WORKING_FILE) ?: return@runCatching emptyList()
+        val loose = format.parseToJsonElement(text).jsonObject[LOOSE_FIELD] ?: return@runCatching emptyList()
+        format.decodeFromJsonElement(ListSerializer(LoosePiece.serializer()), loose)
     }
 
     fun loadWorking(): Result<CraftDesign?> = runCatching {
@@ -177,6 +195,7 @@ class CraftStore(private val directory: Folder) {
 
     private companion object {
         const val WORKING_FILE = "assembly-working.json"
+        const val LOOSE_FIELD = "loose"
         const val EXTENSION = "craft"
         const val SEEDED_LEDGER = "stock-offered.txt"
 

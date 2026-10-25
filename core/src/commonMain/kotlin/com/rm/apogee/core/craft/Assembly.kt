@@ -1,7 +1,10 @@
 package com.rm.apogee.core.craft
 
 import com.rm.apogee.core.math.Quat
+import com.rm.apogee.core.math.SerialQuat
+import com.rm.apogee.core.math.SerialVec3
 import com.rm.apogee.core.math.Vec3
+import kotlinx.serialization.Serializable
 import com.rm.apogee.core.part.AttachNodeKind
 import com.rm.apogee.core.part.PartCatalog
 import com.rm.apogee.core.math.Math
@@ -26,6 +29,36 @@ data class Assembly(
     companion object {
         /** One new part, as picked from the drawer. */
         fun of(partId: String) = Assembly(listOf(PlacedPart(partId, Vec3.zero())))
+    }
+}
+
+/**
+ * A piece taken off the craft and left on the floor, not joined to anything. Its first part sits at
+ * [position], turned by [rotation], in design space. [copies] is how many symmetry copies came off
+ * with it, so four fins go back on as four. Kept in the working file only, never in a design.
+ */
+@Serializable
+data class LoosePiece(
+    val parts: List<PlacedPart>,
+    val mountNodeId: String? = null,
+    val stages: List<Int> = emptyList(),
+    val position: SerialVec3,
+    val rotation: SerialQuat = Quat.identity(),
+    val copies: Int = 1,
+) {
+    val assembly: Assembly get() = Assembly(parts, mountNodeId, stages)
+
+    /** Its parts where they lie, in design space. */
+    fun placed(): List<PlacedPart> = parts.map { part ->
+        part.copy(
+            position = rotation.rotate(part.position).addInPlace(position),
+            rotation = (rotation * part.rotation).normalizeInPlace(),
+        )
+    }
+
+    companion object {
+        fun of(assembly: Assembly, position: Vec3, rotation: Quat, copies: Int) =
+            LoosePiece(assembly.parts, assembly.mountNodeId, assembly.stages, position.copy(), rotation.copy(), copies)
     }
 }
 
@@ -112,14 +145,60 @@ object Assemblies {
      * together move together. Null for the root.
      */
     fun lift(design: CraftDesign, index: Int): Lift? {
+        val kept = keptAfterLift(design, index) ?: return null
+        val assembly = extract(design, index) ?: return null
+        val group = design.parts[index].symmetryGroup
+        val copies = if (group >= 0) design.parts.count { it.symmetryGroup == group } else 1
+        return Lift(design.keeping(kept), assembly, copies)
+    }
+
+    /** The parts left after lifting [index], in order, or null if it can't be lifted. */
+    private fun keptAfterLift(design: CraftDesign, index: Int): List<Int>? {
         if (index !in design.parts.indices || design.parts[index].parentIndex < 0) return null
         val group = design.parts[index].symmetryGroup
         val roots = if (group >= 0) design.parts.indices.filter { design.parts[it].symmetryGroup == group } else listOf(index)
         val taken = roots.flatMap { design.subtreeOf(it) }.toSet()
-        val kept = design.parts.indices.filter { it !in taken }
-        if (kept.isEmpty()) return null
-        val assembly = extract(design, index) ?: return null
-        return Lift(design.keeping(kept), assembly, roots.size)
+        return design.parts.indices.filter { it !in taken }.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Puts [assembly] into the joint where part [child] hangs: the new piece goes on the parent's
+     * node and [child], with everything below it, goes back on the new piece's free node on the far
+     * side, moved out to make room. Symmetry partners of [child] each get a copy. [Attached.added] is
+     * the new piece's parts. Null if the new piece has no far node that fits. [copies] is how many
+     * of the piece there are, for a lifted or loose piece; null for a new part, which is copied to
+     * fit. Null if the joint has a different number of copies, so none are lost or made up.
+     */
+    fun insert(design: CraftDesign, assembly: Assembly, child: Int, catalog: PartCatalog, copies: Int? = null): Attached? {
+        val joint = design.parts.getOrNull(child) ?: return null
+        val kept = keptAfterLift(design, child) ?: return null
+        val lifted = lift(design, child) ?: return null
+        if (copies != null && copies != lifted.copies) return null
+        val parent = kept.indexOf(joint.parentIndex)
+        if (parent < 0) return null
+        val rest = lifted.rest
+        val parentNode = Attachment.openNodes(rest, catalog)
+            .firstOrNull { it.partIndex == parent && it.node.id == joint.parentNodeId } ?: return null
+        val symmetry = SymmetryMode.forCopies(lifted.copies, design.orientation)
+        val placed = attach(rest, assembly, parentNode, symmetry, catalog) ?: return null
+        val childMount = catalog[joint.partId]?.allAttachNodes?.firstOrNull { it.id == joint.ownNodeId } ?: return null
+        val root = placed.added.first()
+        val far = Attachment.openNodes(placed.design, catalog)
+            .filter { it.partIndex == root && Attachment.compatible(it, childMount) && (it.direction dot parentNode.direction) > FAR_SIDE }
+            .maxByOrNull { it.direction dot parentNode.direction } ?: return null
+        val back = attach(placed.design, lifted.assembly, far, symmetry, catalog) ?: return null
+        // Every copy has to go back on, or some would be lost.
+        if (back.added.size != lifted.assembly.size * lifted.copies) return null
+        return Attached(back.design, placed.added)
+    }
+
+    /**
+     * Whether [def] could go into a joint at [parentNode] with [childNode] hanging from it: it needs
+     * a node for the parent and another for the child. A quick check for showing the joint.
+     */
+    fun mightInsert(def: com.rm.apogee.core.part.PartDef, parentNode: OpenNode, childNode: com.rm.apogee.core.part.AttachNode): Boolean {
+        val mount = Attachment.mountNodeFor(def, parentNode) ?: return false
+        return def.allAttachNodes.any { it.id != mount.id && Attachment.compatible(OpenNode(-1, it, Vec3.zero(), Vec3.zero()), childNode) }
     }
 
     /**
@@ -287,6 +366,9 @@ object Assemblies {
 
     private fun spun(spin: Quat): (Attachment.Placement) -> Attachment.Placement =
         { p -> Attachment.Placement(spin.rotate(p.position), spin * p.rotation) }
+
+    /** Cosine past which a node faces the same way as the joint, so it's on the far side. */
+    private const val FAR_SIDE = 0.5
 
     /** Metres within which a reflected part counts as landing on itself. */
     private const val CENTRELINE = 0.05

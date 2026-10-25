@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
@@ -80,9 +81,6 @@ private val steamDeck: Boolean = runCatching {
 private val gameMode: Boolean =
     System.getenv("XDG_CURRENT_DESKTOP") == "gamescope" || System.getenv("SteamGamepadUI") != null
 
-/** The Deck's 7 inch screen at the desktop's usual density would make the controls tiny. */
-private const val DECK_SCALE = 1.5f
-
 private fun windowIcon(): BitmapPainter? = runCatching {
     val bytes = Thread.currentThread().contextClassLoader.getResourceAsStream("apogee.png")!!.use { it.readBytes() }
     BitmapPainter(org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap())
@@ -99,6 +97,7 @@ fun main() {
     val cache = (if (onWindows) windowsDir("LOCALAPPDATA", "cache") else xdg("XDG_CACHE_HOME", ".cache")).apply { mkdirs() }
     // A second launch brings the running copy forward instead.
     if (!SingleInstance.claim(data)) return
+    UiScale.startProbe()
     // Before anything else can throw. Also picks up crashes the JVM wrote on earlier runs.
     val crashes = CrashReports(data).apply { install(); collect() }
 
@@ -175,7 +174,12 @@ fun main() {
                 }
             }
             val system = LocalDensity.current
-            CompositionLocalProvider(LocalDensity provides if (steamDeck) Density(DECK_SCALE, system.fontScale) else system) {
+            // Picked once from the toolkit's own density; Settings can override it.
+            val auto = remember { UiScale.detect(system.density, steamDeck) }
+            SideEffect { host.autoInterfaceScale = auto.scale }
+            val size = host.settings.interfaceScale.takeIf { it > 0f } ?: auto.scale
+            val density = if (size == system.density) system else Density(size, system.fontScale)
+            CompositionLocalProvider(LocalDensity provides density) {
                 Box(Modifier.fillMaxSize().background(Color.Black)) {
                     WorldImage(host)
                     // In its own layer, so the world layer's cut-out shows the image under it.
@@ -277,7 +281,7 @@ private fun worldKey(app: ApogeeApp, event: KeyEvent): Boolean {
         KeyEventType.KeyUp -> false
         else -> return false
     }
-    if (event.key == Key.Escape) return down && goBack()
+    if (event.key == Key.Escape) return down && ((app.buildingKeys && app.key("Escape", true)) || goBack())
     val code = keyCode(event.key) ?: return false
     return app.key(code, down)
 }
@@ -289,6 +293,8 @@ private fun keyCode(key: Key): String? = when (key) {
     Key.DirectionLeft -> "ArrowLeft"
     Key.DirectionRight -> "ArrowRight"
     Key.Spacebar -> "Space"
+    Key.Delete -> "Delete"
+    Key.Backspace -> "Backspace"
     Key.ShiftLeft -> "ShiftLeft"
     Key.ShiftRight -> "ShiftRight"
     Key.CtrlLeft -> "ControlLeft"

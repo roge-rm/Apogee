@@ -1,5 +1,6 @@
 package com.rm.apogee.ui.screens
 
+import com.rm.apogee.ui.components.typing
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
@@ -290,7 +291,7 @@ fun BuilderScreen(
             CarryPicture(
                 picture = session.carryPartId?.let { pictures[it] },
                 at = point,
-                lift = screen.height * BuilderSession.FINGER_LIFT,
+                lift = screen.height * session.liftFraction,
             )
         }
 
@@ -350,7 +351,7 @@ fun BuilderScreen(
                 }
                 Spacer(Modifier.height(6.dp))
             }
-            val refusal = session.careerRefusal()
+            val refusal = session.launchRefusal()
             if (refusal != null) {
                 Surface(shape = RoundedCornerShape(Dimens.CornerSmall), color = ApogeeColors.Danger.alpha(0.22f)) {
                     Text(
@@ -824,6 +825,7 @@ private fun NameDialog(initial: String, onDismiss: () -> Unit, onConfirm: (Strin
                 onValueChange = { text = it },
                 singleLine = true,
                 label = { Text("Name") },
+                modifier = Modifier.typing(),
             )
         },
         confirmButton = {

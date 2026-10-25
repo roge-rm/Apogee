@@ -63,12 +63,18 @@ class WorldGestures(private val app: ApogeeApp) {
         app.builderSession?.setViewSize(this.width, this.height)
     }
 
-    /** The first finger (or the mouse button) goes down at [x], [y]. */
-    fun down(x: Float, y: Float, time: Long) {
+    /** Pixels per dp, which the assembly building's tap and drag distances follow. */
+    var density: Float
+        get() = building.scale * PHONE_DENSITY
+        set(value) { building.scale = value / PHONE_DENSITY }
+
+    /** The first finger (or the left mouse button, if [mouse]) goes down at [x], [y]. */
+    fun down(x: Float, y: Float, time: Long, mouse: Boolean = false) {
         if (!app.worldInputEnabled) return
         if (building0) {
             app.builderSession?.setViewSize(width, height)
-            building.down(x, y, time)
+            app.builderSession?.mouseCarry = mouse
+            building.down(x, y, time, mouse)
             return
         }
         lastX = x; lastY = y
@@ -163,6 +169,8 @@ class WorldGestures(private val app: ApogeeApp) {
     }
 
     companion object {
+        /** The density the gesture distances were set for. */
+        const val PHONE_DENSITY = 2.625f
         const val ORBIT_RADIANS_PER_PIXEL = 0.005
 
         /** How far a touch can travel and still count as a tap. */

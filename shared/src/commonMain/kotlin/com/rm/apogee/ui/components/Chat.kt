@@ -189,7 +189,7 @@ fun ChatWindow(hud: HudState, onSend: (String) -> Unit, onKick: (String) -> Unit
                     placeholder = { Text("Say something", color = Color.White.alpha(ApogeeAlpha.SUBTITLE)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { send() }),
-                    modifier = Modifier.fillMaxWidth().focusRequester(box),
+                    modifier = Modifier.fillMaxWidth().focusRequester(box).typing(),
                 )
             }
         },

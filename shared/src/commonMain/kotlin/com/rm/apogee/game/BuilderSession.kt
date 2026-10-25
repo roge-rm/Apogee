@@ -70,6 +70,13 @@ class BuilderSession(
     var selectedPartIndex: Int? by mutableStateOf(null)
         private set
 
+    /** A loose piece the player has tapped, by its place in [CraftBuilder.loose]. */
+    var selectedLoose: Int? by mutableStateOf(null)
+        private set
+
+    /** Whether anything lies loose on the floor, which stops a launch or a named save. */
+    val hasLoose: Boolean get() = builder.loose.isNotEmpty()
+
     /**
      * Where the selected part is on screen, in pixels, for the action bar. Null when off screen.
      */
@@ -80,9 +87,25 @@ class BuilderSession(
      * Something carried under a finger: a part dragged from the drawer or a piece lifted off the
      * craft. [rest] is the craft without it, drawn and snapped to meanwhile.
      */
-    private class Carry(val assembly: Assembly, val lifted: Int?, val rest: CraftDesign, val symmetry: SymmetryMode)
+    private class Carry(
+        val assembly: Assembly, val lifted: Int?, val rest: CraftDesign, val symmetry: SymmetryMode,
+        /** The loose piece picked up, by its place in [CraftBuilder.loose]. */
+        val loose: Int? = null,
+        /** Where it was picked up, in pixels, and the design-space point under that. */
+        val start: Offset? = null,
+        val anchor: Vec3? = null,
+    )
+
+    /** Somewhere to put a piece: an open node, or with [child] set, the joint above that part. */
+    private class Spot(val node: OpenNode, val child: Int = -1)
 
     @Volatile private var carry: Carry? = null
+
+    /** The carrying pointer is a mouse, which needs no lift to see under it. */
+    @Volatile var mouseCarry = false
+
+    /** How far above the pointer the carried part snaps, as a fraction of the view's height. */
+    val liftFraction: Float get() = if (mouseCarry) 0f else FINGER_LIFT
 
     /** Where the carrying finger is, in pixels. Null when nothing is being carried. */
     var carryPoint: Offset? by mutableStateOf(null)
@@ -97,6 +120,9 @@ class BuilderSession(
         private set
 
     @Volatile private var carryTarget: OpenNode? = null
+
+    /** With [carryTarget] a joint, the part hanging from it, else -1. */
+    @Volatile private var carryInsert = -1
 
     /** Moves the view's target off the middle of the craft. Two fingers slide it. */
     private val pan = Vec3()
@@ -150,10 +176,14 @@ class BuilderSession(
 
     /** Why the career won't let this launch where it's going, or null if it will (or this is a sandbox). */
     fun careerRefusal(): String? {
+        if (hasLoose) return null
         val c = career ?: return null
         val design = designForLaunch() ?: return null
         return com.rm.apogee.core.career.CareerRules.refusal(tree, c, design, launchSiteId ?: automaticSite().id, catalog)
     }
+
+    /** Why LAUNCH won't go: loose pieces, or the career. Null if it will. */
+    fun launchRefusal(): String? = if (hasLoose) LOOSE_NOTE else careerRefusal()
 
     /**
      * What the launching facility can take against what this is: "12.3 / 45 t · 22 / 40 parts".
@@ -188,7 +218,10 @@ class BuilderSession(
 
     fun start(scope: CoroutineScope) {
         store.loadWorking().onSuccess { design ->
-            if (design != null) { builder.load(design); onEdited() }
+            if (design != null) {
+                builder.load(design, store.loadLoose().getOrElse { emptyList() })
+                onEdited()
+            }
         }.onFailure { statusMessage = "Couldn't restore assembly: ${it.message}" }
         refreshSavedList()
         refreshAssemblies()
@@ -215,6 +248,7 @@ class BuilderSession(
     fun selectPart(partId: String?) {
         held = partId?.let { Held(Assembly.of(it), it, once = false) }
         selectedPartIndex = null
+        selectedLoose = null
         revision++
     }
 
@@ -241,10 +275,17 @@ class BuilderSession(
         val index: Int, val title: String, val count: Int, val root: Boolean, val stage: Int, val stageable: Boolean,
         /** Whether an action group can switch it, and which it's in, 0 for none. */
         val groupable: Boolean = false, val group: Int = 0,
+        /** A loose piece, which can only be deleted from the bar. */
+        val loose: Boolean = false,
     )
 
     val selection: Selection?
         get() {
+            selectedLoose?.let { i ->
+                val piece = builder.loose.getOrNull(i) ?: return null
+                val title = catalog[piece.assembly.rootPartId]?.title ?: piece.assembly.rootPartId
+                return Selection(-1, title, piece.parts.size * piece.copies, root = false, stage = -1, stageable = false, loose = true)
+            }
             val index = selectedPartIndex ?: return null
             val design = builder.design
             if (index !in design.parts.indices) return null
@@ -261,6 +302,7 @@ class BuilderSession(
 
     fun clearSelection() {
         selectedPartIndex = null
+        selectedLoose = null
         selectionAnchor = null
         revision++
     }
@@ -365,6 +407,7 @@ class BuilderSession(
         stagingMode = !stagingMode
         held = null
         selectedPartIndex = null
+        selectedLoose = null
         selectionAnchor = null
         selectedStage = if (stagingMode) builder.design.stages.indices.firstOrNull() else null
         statusMessage = if (stagingMode) "Tap a stage, then tap parts to move them into it" else null
@@ -467,8 +510,10 @@ class BuilderSession(
         }
         val inHand = held
         if (inHand == null) {
-            selectedPartIndex = pickPart(x, y, width, height)
-            if (selectedPartIndex == null) selectionAnchor = null
+            val picked = pickAny(x, y, width, height)
+            selectedPartIndex = picked?.first
+            selectedLoose = picked?.second
+            if (picked == null) selectionAnchor = null
             revision++
             return
         }
@@ -479,7 +524,7 @@ class BuilderSession(
             return
         }
 
-        val node = pickNode(x, y, width, height, inHand.assembly.rootPartId, builder.design) ?: run {
+        val spot = pickSpot(x, y, width, height, inHand.assembly.rootPartId, builder.design) ?: run {
             // Off the craft altogether, so put it down.
             if (pickPart(x, y, width, height) == null) {
                 held = null
@@ -490,9 +535,9 @@ class BuilderSession(
             }
             return
         }
-        val added = builder.attachAssembly(inHand.assembly, node)
+        val added = if (spot.child >= 0) builder.insert(inHand.assembly, spot.child) else builder.attachAssembly(inHand.assembly, spot.node)
         if (added.isEmpty()) {
-            statusMessage = "That part won't fit here"
+            statusMessage = if (spot.child >= 0) "That won't fit there" else "That part won't fit here"
         } else {
             statusMessage = null
             if (inHand.once) held = null
@@ -504,7 +549,7 @@ class BuilderSession(
     fun recentre() {
         pan.setZero()
         val design = builder.design
-        camera.frameFor(designExtent(design, designCentre(design)))
+        camera.frameFor(floorExtent(design, designCentre(design)))
     }
 
     /** Two fingers moved the view by ([dx], [dy]) pixels, so slide the view target with them. */
@@ -514,7 +559,7 @@ class BuilderSession(
         val up = cameraRotation.rotate(Vec3.unitY(), Vec3())
         pan.addScaledInPlace(right, -dx * metresPerPixel).addScaledInPlace(up, dy * metresPerPixel)
         val design = builder.design
-        val limit = designExtent(design, designCentre(design)) + PAN_MARGIN
+        val limit = floorExtent(design, designCentre(design)) + PAN_MARGIN
         if (pan.length > limit) pan.mulInPlace(limit / pan.length)
     }
 
@@ -524,6 +569,7 @@ class BuilderSession(
     fun beginCarry(partId: String) {
         if (stagingMode) return
         selectedPartIndex = null
+        selectedLoose = null
         startCarry(Carry(Assembly.of(partId), null, builder.design, builder.symmetry), partId)
     }
 
@@ -534,7 +580,9 @@ class BuilderSession(
     fun liftAt(x: Float, y: Float, width: Float, height: Float): Boolean {
         setViewSize(width, height)
         if (stagingMode) return false
-        val index = pickPart(x, y, width, height) ?: return false
+        val picked = pickAny(x, y, width, height) ?: return false
+        picked.second?.let { return pickUpLoose(it, x, y) }
+        val index = picked.first ?: return false
         val lifted = builder.lift(index) ?: run {
             statusMessage = "The first part holds everything else, so it stays"
             return false
@@ -546,8 +594,25 @@ class BuilderSession(
             else -> SymmetryMode.entries.firstOrNull { it.count == lifted.copies } ?: builder.symmetry
         }
         selectedPartIndex = null
+        selectedLoose = null
         selectionAnchor = null
-        startCarry(Carry(lifted.assembly, index, lifted.rest, symmetry), lifted.assembly.rootPartId)
+        val anchor = builder.design.parts[index].position.copy()
+        startCarry(Carry(lifted.assembly, index, lifted.rest, symmetry, start = Offset(x, y), anchor = anchor), lifted.assembly.rootPartId)
+        carryTo(x, y)
+        return true
+    }
+
+    /** Picks up loose piece [index] to carry, the craft staying as it is. */
+    private fun pickUpLoose(index: Int, x: Float, y: Float): Boolean {
+        val piece = builder.loose.getOrNull(index) ?: return false
+        selectedPartIndex = null
+        selectedLoose = null
+        selectionAnchor = null
+        val symmetry = SymmetryMode.forCopies(piece.copies, builder.orientation)
+        startCarry(
+            Carry(piece.assembly, null, builder.design, symmetry, loose = index, start = Offset(x, y), anchor = piece.position.copy()),
+            piece.assembly.rootPartId,
+        )
         carryTo(x, y)
         return true
     }
@@ -556,6 +621,7 @@ class BuilderSession(
         carry = c
         carryPartId = partId
         carryTarget = null
+        carryInsert = -1
         carrySnapped = false
         revision++
     }
@@ -565,24 +631,53 @@ class BuilderSession(
         val c = carry ?: return
         carryPoint = Offset(x, y)
         // A thumb's width above the fingertip, so the node isn't under it.
-        val target = if (c.rest.parts.isEmpty()) null
-            else pickNode(x, y - viewHeight * FINGER_LIFT, viewWidth, viewHeight, c.assembly.rootPartId, c.rest)
-        carryTarget = target
-        carrySnapped = target != null || c.rest.parts.isEmpty()
+        val spot = if (c.rest.parts.isEmpty()) null
+            else pickSpot(x, y - viewHeight * liftFraction, viewWidth, viewHeight, c.assembly.rootPartId, c.rest)
+        carryInsert = spot?.child ?: -1
+        carryTarget = spot?.node
+        carrySnapped = spot != null || (c.rest.parts.isEmpty() && c.loose == null)
     }
 
-    /** Let go: onto the node it snapped to, or back where it came from. */
+    /**
+     * Let go: onto the node or into the joint it snapped to. Anywhere else a lifted or loose piece
+     * stays loose where it was let go, a drawer part goes away.
+     */
     fun endCarry() {
         val c = carry ?: return
         val target = carryTarget
+        val insert = carryInsert
         when {
-            c.rest.parts.isEmpty() && c.lifted == null -> {
+            c.rest.parts.isEmpty() && c.lifted == null && c.loose == null -> {
                 builder.placeRoot(c.assembly.rootPartId)
                 onEdited()
             }
-            target == null -> statusMessage = if (c.lifted != null) "Put back where it was" else null
+            target == null && c.lifted == null && c.loose == null -> statusMessage = null
+            target == null -> {
+                val offset = carryPoint?.let { dropOffset(c, it) }
+                when {
+                    offset == null -> if (c.lifted != null) statusMessage = "Put back where it was"
+                    c.lifted != null -> {
+                        if (builder.park(c.lifted, c.anchor!!.copy().addInPlace(offset))) {
+                            statusMessage = "Left loose"
+                            onEdited()
+                        }
+                    }
+                    else -> if (builder.moveLoose(c.loose!!, c.anchor!!.copy().addInPlace(offset))) onEdited()
+                }
+            }
+            insert >= 0 -> {
+                val added = when {
+                    c.lifted != null -> builder.moveInsert(c.lifted, insert)
+                    c.loose != null -> builder.insertLoose(c.loose, insert)
+                    else -> builder.insert(c.assembly, insert)
+                }
+                if (added.isEmpty()) statusMessage = "That won't fit there" else onEdited()
+            }
             c.lifted != null -> {
                 if (builder.move(c.lifted, target, c.symmetry).isEmpty()) statusMessage = "That won't fit there" else onEdited()
+            }
+            c.loose != null -> {
+                if (builder.attachLoose(c.loose, target).isEmpty()) statusMessage = "That won't fit there" else onEdited()
             }
             else -> {
                 val saved = builder.symmetry
@@ -593,16 +688,79 @@ class BuilderSession(
         cancelCarry()
     }
 
+    /**
+     * How far a piece let go at [point] moved from where it was picked up, in design space, across
+     * the view at the depth it was. Null when it barely moved, to put it back.
+     */
+    private fun dropOffset(c: Carry, point: Offset): Vec3? {
+        val start = c.start ?: return null
+        val anchor = c.anchor ?: return null
+        if ((point - start).getDistance() < PUT_BACK_PIXELS) return null
+        val from = onViewPlane(start.x, start.y, anchor) ?: return null
+        val to = onViewPlane(point.x, point.y, anchor) ?: return null
+        return to.subInPlace(from)
+    }
+
+    /** Where the line of sight through pixel ([x], [y]) crosses the plane facing the camera through [through]. */
+    private fun onViewPlane(x: Float, y: Float, through: Vec3): Vec3? {
+        val direction = sightLine(x, y, viewWidth, viewHeight)
+        val forward = cameraRotation.rotate(Vec3(0.0, 0.0, -1.0))
+        val along = direction dot forward
+        if (along < 1e-6) return null
+        val t = (Vec3().setTo(through).subInPlace(cameraPosition) dot forward) / along
+        return cameraPosition.copy().addScaledInPlace(direction, t)
+    }
+
     fun cancelCarry() {
         carry = null
         carryTarget = null
+        carryInsert = -1
         carryPoint = null
         carryPartId = null
         carrySnapped = false
         revision++
     }
 
+    /**
+     * A key in the building, by [BuilderKeys] mapping. True if it was used. Esc only counts when
+     * there was something to cancel, so it can still go back.
+     */
+    fun applyKey(key: BuilderKey): Boolean {
+        // Undo changes the craft under a piece being carried, so the carry ends first, as Esc does.
+        if ((key == BuilderKey.UNDO || key == BuilderKey.REDO) && carry != null) cancelCarry()
+        when (key) {
+            BuilderKey.UNDO -> undo()
+            BuilderKey.REDO -> redo()
+            BuilderKey.DELETE -> deleteSelected()
+            BuilderKey.DUPLICATE -> duplicateSelected()
+            BuilderKey.SAVE -> save()
+            BuilderKey.TURN -> turnSelected()
+            BuilderKey.SYMMETRY -> toggleSymmetry()
+            BuilderKey.GROUP -> cycleGroupSelected()
+            BuilderKey.RECENTRE -> recentre()
+            BuilderKey.PAN_LEFT -> panBy(-KEY_PAN_PIXELS, 0f)
+            BuilderKey.PAN_RIGHT -> panBy(KEY_PAN_PIXELS, 0f)
+            BuilderKey.PAN_UP -> panBy(0f, -KEY_PAN_PIXELS)
+            BuilderKey.PAN_DOWN -> panBy(0f, KEY_PAN_PIXELS)
+            BuilderKey.CANCEL -> when {
+                carry != null -> cancelCarry()
+                held != null -> dropHeld()
+                selectedPartIndex != null || selectedLoose != null -> clearSelection()
+                else -> return false
+            }
+        }
+        return true
+    }
+
     fun deleteSelected() {
+        selectedLoose?.let { loose ->
+            if (builder.removeLoose(loose)) {
+                selectedLoose = null
+                selectionAnchor = null
+                onEdited()
+            }
+            return
+        }
         val index = selectedPartIndex ?: return
         if (builder.remove(index)) {
             selectedPartIndex = null
@@ -614,16 +772,20 @@ class BuilderSession(
     }
 
     fun undo() {
+        // Undo can change which pieces lie loose, so a selected one would be the wrong one.
+        selectedLoose = null
         if (builder.undo()) onEdited() else statusMessage = "Nothing to undo"
     }
 
     fun redo() {
+        selectedLoose = null
         if (builder.redo()) onEdited()
     }
 
     fun clear() {
         builder.clear()
         selectedPartIndex = null
+        selectedLoose = null
         onEdited()
     }
 
@@ -634,19 +796,24 @@ class BuilderSession(
         onEdited()
     }
 
-    fun saveWorking(): Boolean = store.saveWorking(builder.design)
+    fun saveWorking(): Boolean = store.saveWorking(builder.design, builder.loose)
         .onFailure { statusMessage = "Couldn't save assembly: ${it.message}" }
         .isSuccess
 
     fun edit(design: CraftDesign) {
         builder.load(design)
         selectedPartIndex = null
+        selectedLoose = null
         onEdited()
     }
 
     fun save() {
         if (builder.isEmpty) {
             statusMessage = "Nothing to save"
+            return
+        }
+        if (hasLoose) {
+            statusMessage = LOOSE_NOTE
             return
         }
         store.save(builder.design)
@@ -663,6 +830,7 @@ class BuilderSession(
                 // Old stock designs had their fins and legs all pointing one way.
                 builder.load(com.rm.apogee.core.craft.StockCraft.facingOutward(it, catalog))
                 selectedPartIndex = null
+                selectedLoose = null
                 statusMessage = "Loaded \"${it.name}\""
                 onEdited()
             }
@@ -673,6 +841,7 @@ class BuilderSession(
     fun openShared(design: CraftDesign) {
         builder.load(design)
         selectedPartIndex = null
+        selectedLoose = null
         statusMessage = "Opened \"${design.name}\". It's saved with your craft"
         refreshSavedList()
         onEdited()
@@ -727,7 +896,7 @@ class BuilderSession(
 
     /** The design as it would be launched. */
     fun designForLaunch(): CraftDesign? =
-        if (builder.isEmpty || !stats.isFlyable) null else builder.design.preparedForLaunch(catalog)
+        if (builder.isEmpty || hasLoose || !stats.isFlyable) null else builder.design.preparedForLaunch(catalog)
 
     // --- rendering -----------------------------------------------------------
 
@@ -739,7 +908,7 @@ class BuilderSession(
 
         // Frame the craft, not the design origin, so a tall stack stays centred as it grows.
         val centre = designCentre(design)
-        camera.frameAtLeast(designExtent(design, centre))
+        camera.frameAtLeast(floorExtent(design, centre))
         // Half the difference between the covered strips, so the craft sits centred between the
         // panels. Not while carrying, or the craft would slide out from under the target node.
         if (c == null) shownInset += (leftInset - rightInset - shownInset) * INSET_EASE
@@ -766,6 +935,17 @@ class BuilderSession(
             addPart(items, design, placed, caps[index], centre, highlight)
         }
 
+        // Loose pieces, shaded darker, all but the one being carried.
+        val loose = builder.loose
+        val chosenLoose = selectedLoose?.takeIf { c == null }
+        loose.forEachIndexed { i, piece ->
+            if (i == c?.loose) return@forEachIndexed
+            val laid = CraftDesign("", piece.placed(), orientation = design.orientation)
+            val looseCaps = StackCaps.forDesign(laid, catalog)
+            val highlight = if (i == chosenLoose) SELECTED_COLOR else null
+            laid.parts.forEachIndexed { k, placed -> addPart(items, laid, placed, looseCaps[k], centre, highlight, shade = LOOSE_SHADE) }
+        }
+
         // Attach-node markers only while a part is in hand, and only the ones it can go on, so a
         // wheel held over a horizontal craft shows its underside and nothing that would be refused.
         val rootId = c?.assembly?.rootPartId ?: held?.assembly?.rootPartId
@@ -776,9 +956,22 @@ class BuilderSession(
             if (node === target) continue
             items.add(RenderItem(shape = NODE_MARKER, position = node.position.copy(), rotation = Quat.identity(), color = NODE_COLOR))
         }
+        // Joints it could go into: a thin pale blue band round each, since a marker in the joint
+        // would be hidden inside the parts.
+        for (joint in rootId?.let { insertSpots(design, it) }.orEmpty()) {
+            if (target != null && joint.node.position.approxEquals(target.position, 1e-6)) continue
+            items.add(RenderItem(shape = jointBand(design, joint), position = joint.node.position.copy(),
+                rotation = com.rm.apogee.core.math.quatFromTo(Vec3.unitY(), joint.node.direction), color = INSERT_COLOR))
+        }
 
         // What's being carried, where it would go: a see-through ghost, copies and all.
-        if (c != null && target != null) {
+        val insert = carryInsert
+        if (c != null && target != null && insert >= 0) {
+            Assemblies.insert(design, c.assembly, insert, catalog)?.let { done ->
+                val ghostCaps = StackCaps.forDesign(done.design, catalog)
+                for (index in done.added) addPart(items, done.design, done.design.parts[index], ghostCaps[index], centre, GHOST_COLOR)
+            }
+        } else if (c != null && target != null) {
             Assemblies.attach(design, c.assembly, target, c.symmetry, catalog)?.let { done ->
                 val ghostCaps = StackCaps.forDesign(done.design, catalog)
                 for (index in done.added) addPart(items, done.design, done.design.parts[index], ghostCaps[index], centre, GHOST_COLOR)
@@ -787,6 +980,7 @@ class BuilderSession(
 
         // Where the action bar goes.
         val anchor = selected?.let { project(design.parts[it].position, viewWidth, viewHeight) }
+            ?: chosenLoose?.let { i -> loose.getOrNull(i)?.let { project(it.position, viewWidth, viewHeight) } }
         val was = selectionAnchor
         val now = anchor?.let { Offset(it.first, it.second) }
         if (now == null) { if (was != null) selectionAnchor = null }
@@ -811,6 +1005,8 @@ class BuilderSession(
         caps: Int,
         centre: Vec3,
         highlight: FloatArray?,
+        /** Scales the colour's brightness, for loose pieces. */
+        shade: Float = 1f,
     ) {
         val def = catalog[placed.partId] ?: return
         val body = highlight ?: com.rm.apogee.render.PartModels.bodyColour(placed.partId)
@@ -829,7 +1025,9 @@ class BuilderSession(
                     shape = leaf.shape,
                     position = placed.rotation.rotate(leaf.position).addInPlace(placed.position),
                     rotation = placed.rotation * leaf.rotation,
-                    color = highlight ?: com.rm.apogee.render.PartModels.colour(leaf.tint, body),
+                    color = highlight ?: com.rm.apogee.render.PartModels.colour(leaf.tint, body).let { colour ->
+                        if (shade == 1f) colour else floatArrayOf(colour[0] * shade, colour[1] * shade, colour[2] * shade, colour[3])
+                    },
                 )
             )
         }
@@ -841,6 +1039,43 @@ class BuilderSession(
         return Attachment.openNodes(design, catalog).filter {
             Attachment.accepts(def, it, design.orientation) && Attachment.mountNodeFor(def, it) != null
         }
+    }
+
+    /**
+     * The joints of [design] that part [partId] might go into, each as the parent's node with the
+     * part hanging from it. A quick check: [Assemblies.insert] has the last word.
+     */
+    private fun insertSpots(design: CraftDesign, partId: String): List<Spot> {
+        val def = catalog[partId] ?: return emptyList()
+        val spots = ArrayList<Spot>()
+        design.parts.forEachIndexed { index, placed ->
+            val parent = design.parts.getOrNull(placed.parentIndex) ?: return@forEachIndexed
+            val parentDef = catalog[parent.partId] ?: return@forEachIndexed
+            val node = (parentDef.allAttachNodes + parentDef.quarterNodes).firstOrNull { it.id == placed.parentNodeId } ?: return@forEachIndexed
+            val own = catalog[placed.partId]?.allAttachNodes?.firstOrNull { it.id == placed.ownNodeId } ?: return@forEachIndexed
+            val open = Attachment.resolve(placed.parentIndex, parent, node)
+            if (Attachment.accepts(def, open, design.orientation) && Assemblies.mightInsert(def, open, own)) spots.add(Spot(open, index))
+        }
+        return spots
+    }
+
+    /** The band drawn round [joint]: just wider than the parent on a stack, a small disc on a side. */
+    private fun jointBand(design: CraftDesign, joint: Spot): MeshSpec {
+        if (joint.node.kind == com.rm.apogee.core.part.AttachNodeKind.SURFACE) return MeshSpec.Cylinder(0.3, BAND_HEIGHT)
+        val half = design.parts.getOrNull(joint.node.partIndex)?.let { catalog[it.partId]?.boundsHalfExtents }
+        val radius = half?.let { maxOf(it.x, it.z) } ?: 0.5
+        // Rounded to a few sizes so the renderer makes few meshes.
+        return MeshSpec.Cylinder(kotlin.math.ceil(radius * 10.0) / 10.0 + 0.06, BAND_HEIGHT)
+    }
+
+    /** The furthest part from [centre], loose pieces too, so the camera can pull back to fit them. */
+    private fun floorExtent(design: CraftDesign, centre: Vec3): Double {
+        var extent = designExtent(design, centre)
+        for (piece in builder.loose) for (placed in piece.placed()) {
+            val reach = catalog[placed.partId]?.boundsHalfExtents?.length ?: 0.0
+            extent = maxOf(extent, placed.position.distanceTo(centre) + reach)
+        }
+        return extent
     }
 
     /** The furthest part from [centre], so the camera can pull back to fit it. */
@@ -882,20 +1117,43 @@ class BuilderSession(
         )
     }
 
-    private fun pickNode(x: Float, y: Float, width: Float, height: Float, held: String, design: CraftDesign): OpenNode? {
-        var best: OpenNode? = null
+    /** The open node or joint nearest ([x], [y]) that [held] could go on or into, within reach. */
+    private fun pickSpot(x: Float, y: Float, width: Float, height: Float, held: String, design: CraftDesign): Spot? {
+        var best: Spot? = null
         var bestDistance = TAP_RADIUS_PIXELS * TAP_RADIUS_PIXELS
-        for (node in usableNodes(design, held)) {
-            val screen = project(node.position, width, height) ?: continue
+        for (spot in usableNodes(design, held).map { Spot(it) } + insertSpots(design, held)) {
+            val screen = project(spot.node.position, width, height) ?: continue
             val dx = screen.first - x
             val dy = screen.second - y
             val distance = dx * dx + dy * dy
             if (distance < bestDistance) {
                 bestDistance = distance
-                best = node
+                best = spot
             }
         }
         return best
+    }
+
+    /**
+     * What's under ([x], [y]): a part of the craft (first) or a loose piece (second), whichever is
+     * nearer. Null over nothing.
+     */
+    private fun pickAny(x: Float, y: Float, width: Float, height: Float): Pair<Int?, Int?>? {
+        val design = builder.design
+        val owners = ArrayList<Int>()
+        val parts = ArrayList<com.rm.apogee.core.craft.PlacedPart>(design.parts)
+        builder.loose.forEachIndexed { i, piece -> for (placed in piece.placed()) { parts.add(placed); owners.add(i) } }
+        val hit = pickAmong(parts, x, y, width, height) { true } ?: return null
+        return if (hit < design.parts.size) hit to null else null to owners[hit - design.parts.size]
+    }
+
+    /** The line of sight through pixel ([x], [y]), a unit vector in design space. */
+    private fun sightLine(x: Float, y: Float, width: Float, height: Float): Vec3 {
+        val f = 1.0 / tan(FOV_Y * 0.5)
+        val aspect = width / height
+        val ndcX = (x / width) * 2.0 - 1.0
+        val ndcY = 1.0 - (y / height) * 2.0
+        return cameraRotation.rotate(Vec3(ndcX * aspect / f, ndcY / f, -1.0).normalizeInPlace())
     }
 
     /**
@@ -903,20 +1161,22 @@ class BuilderSession(
      * so a small part in front wins and a big one is hit anywhere. Failing that, the part whose
      * middle is nearest the finger, within reach.
      */
-    private fun pickPart(x: Float, y: Float, width: Float, height: Float, stageableOnly: Boolean = false): Int? {
-        val design = builder.design
-        val f = 1.0 / tan(FOV_Y * 0.5)
-        val aspect = width / height
-        val ndcX = (x / width) * 2.0 - 1.0
-        val ndcY = 1.0 - (y / height) * 2.0
-        val direction = cameraRotation.rotate(Vec3(ndcX * aspect / f, ndcY / f, -1.0).normalizeInPlace())
+    private fun pickPart(x: Float, y: Float, width: Float, height: Float, stageableOnly: Boolean = false): Int? =
+        pickAmong(builder.design.parts, x, y, width, height) { !stageableOnly || builder.isStageable(it) }
+
+    /** The one of [parts] under ([x], [y]), as [pickPart] picks, skipping those not [allowed]. */
+    private fun pickAmong(
+        parts: List<com.rm.apogee.core.craft.PlacedPart>, x: Float, y: Float, width: Float, height: Float,
+        allowed: (Int) -> Boolean,
+    ): Int? {
+        val direction = sightLine(x, y, width, height)
         val origin = cameraPosition.copy()
 
         var nearest: Int? = null
         var nearestT = Double.MAX_VALUE
         val o = Vec3(); val d = Vec3()
-        design.parts.forEachIndexed { index, placed ->
-            if (stageableOnly && !builder.isStageable(index)) return@forEachIndexed
+        parts.forEachIndexed { index, placed ->
+            if (!allowed(index)) return@forEachIndexed
             val half = catalog[placed.partId]?.boundsHalfExtents ?: return@forEachIndexed
             placed.rotation.inverseRotate(o.setTo(origin).subInPlace(placed.position), o)
             placed.rotation.inverseRotate(d.setTo(direction), d)
@@ -927,8 +1187,8 @@ class BuilderSession(
 
         var best: Int? = null
         var bestDistance = PART_TAP_RADIUS_PIXELS * PART_TAP_RADIUS_PIXELS
-        design.parts.forEachIndexed { index, placed ->
-            if (stageableOnly && !builder.isStageable(index)) return@forEachIndexed
+        parts.forEachIndexed { index, placed ->
+            if (!allowed(index)) return@forEachIndexed
             val screen = project(placed.position, width, height) ?: return@forEachIndexed
             val dx = screen.first - x
             val dy = screen.second - y
@@ -946,6 +1206,9 @@ class BuilderSession(
          * A share of the screen's height: how far above the fingertip a carried part snaps from.
          */
         const val FINGER_LIFT = 0.04f
+
+        /** One arrow key press slides the view this far. */
+        const val KEY_PAN_PIXELS = 40f
 
         private const val PRESENT_INTERVAL_MILLIS = 16L
         const val FOV_Y = Math.PI / 180.0 * 55.0
@@ -974,6 +1237,18 @@ class BuilderSession(
 
         /** Where a carried part would go: the nodes' green, see-through. */
         val GHOST_COLOR = floatArrayOf(0.48f, 1.0f, 0.70f, 0.5f)
+
+        /** A joint something could go into, banded in pale blue [BAND_HEIGHT] metres tall. */
+        const val BAND_HEIGHT = 0.1
+        val INSERT_COLOR = floatArrayOf(0.55f, 0.85f, 1.0f, 1f)
+
+        /** How bright loose pieces are drawn, against the craft's 1. */
+        const val LOOSE_SHADE = 0.55f
+
+        /** A piece let go within this many pixels of where it was picked up goes back. */
+        const val PUT_BACK_PIXELS = 40f
+
+        const val LOOSE_NOTE = "Attach or remove the loose parts first"
 
         /** The theme's accent, for the parts of the stage being edited. */
         val STAGE_COLOR = floatArrayOf(0.70f, 0.62f, 1.0f, 1f)

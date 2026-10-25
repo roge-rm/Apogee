@@ -78,7 +78,8 @@ class MainActivity : ComponentActivity(), AppHost {
      * D-pad centre and B to Back itself; this covers controllers that don't.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (!::app.isInitialized || !gamepad.key(event)) return super.dispatchKeyEvent(event)
+        if (!::app.isInitialized) return super.dispatchKeyEvent(event)
+        if (!gamepad.key(event)) return keyboardKey(event)
         app.pad.update(gamepad.state)
         event.device?.takeIf { !it.isVirtual }?.let { app.controllerName = it.name }
         if (app.padMode() == PadMode.FLIGHT) return true
@@ -101,6 +102,38 @@ class MainActivity : ComponentActivity(), AppHost {
             }
             else -> false
         }
+    }
+
+    /**
+     * A keyboard key. The screens get it first, then the assembly building's keys get what they
+     * left. Key-ups always go through so held Ctrl and Shift are let go.
+     */
+    private fun keyboardKey(event: KeyEvent): Boolean {
+        val code = if (app.buildingKeys) keyboardCode(event.keyCode) else null
+        if (code == null) return super.dispatchKeyEvent(event)
+        return when (event.action) {
+            KeyEvent.ACTION_DOWN -> super.dispatchKeyEvent(event) || app.key(code, true)
+            KeyEvent.ACTION_UP -> super.dispatchKeyEvent(event) or app.key(code, false)
+            else -> super.dispatchKeyEvent(event)
+        }
+    }
+
+    /** The browser's code for an Android key code, which is what the app goes by. */
+    private fun keyboardCode(keyCode: Int): String? = when (keyCode) {
+        in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> "Key${'A' + (keyCode - KeyEvent.KEYCODE_A)}"
+        KeyEvent.KEYCODE_DPAD_UP -> "ArrowUp"
+        KeyEvent.KEYCODE_DPAD_DOWN -> "ArrowDown"
+        KeyEvent.KEYCODE_DPAD_LEFT -> "ArrowLeft"
+        KeyEvent.KEYCODE_DPAD_RIGHT -> "ArrowRight"
+        KeyEvent.KEYCODE_SPACE -> "Space"
+        KeyEvent.KEYCODE_FORWARD_DEL -> "Delete"
+        KeyEvent.KEYCODE_DEL -> "Backspace"
+        KeyEvent.KEYCODE_ESCAPE -> "Escape"
+        KeyEvent.KEYCODE_SHIFT_LEFT -> "ShiftLeft"
+        KeyEvent.KEYCODE_SHIFT_RIGHT -> "ShiftRight"
+        KeyEvent.KEYCODE_CTRL_LEFT -> "ControlLeft"
+        KeyEvent.KEYCODE_CTRL_RIGHT -> "ControlRight"
+        else -> null
     }
 
     /** A controller's sticks and triggers. In the menus, Android turns the left stick into the D-pad. */
@@ -149,6 +182,7 @@ class MainActivity : ComponentActivity(), AppHost {
         // The builder picks and pans in pixels, so it needs the view's size before the first touch.
         view.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             gestures.size(v.width.toFloat(), v.height.toFloat())
+            gestures.density = resources.displayMetrics.density
             // A new or rotated view draws at the requested resolution.
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) fitSurface(view)
         }
@@ -214,7 +248,7 @@ class MainActivity : ComponentActivity(), AppHost {
             if (!building) pinch.onTouchEvent(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    gestures.down(event.x, event.y, event.eventTime)
+                    gestures.down(event.x, event.y, event.eventTime, mouse = event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE)
                     if (building) v.postDelayed({ gestures.tick(android.os.SystemClock.uptimeMillis()) }, com.rm.apogee.game.BuilderGestures.LONG_PRESS + 20)
                 }
                 MotionEvent.ACTION_POINTER_DOWN -> if (event.pointerCount >= 2) {

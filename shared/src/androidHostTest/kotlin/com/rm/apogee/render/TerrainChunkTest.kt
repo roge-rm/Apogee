@@ -220,4 +220,26 @@ class TerrainChunkTest {
         }
     }
 
+    /**
+     * The shader lights a skirt from the edge above it by lifting it [TerrainChunk.skirtDrop], so
+     * every skirt vertex, fine and parent, hangs exactly that far below its edge vertex.
+     */
+    @Test
+    fun `skirts hang skirtDrop below their edge`() {
+        val chunk = chunkNearHome()
+        val drop = TerrainChunk.skirtDrop(terra.bodyRadius, chunk.key.level)
+        val side = TerrainChunk.SIDE
+        val top = Vec3(); val low = Vec3()
+        for (edge in 0..3) for (k in 0 until side) {
+            val v = when (edge) { 0 -> k; 1 -> TerrainChunk.CELLS * side + k; 2 -> k * side; else -> k * side + TerrainChunk.CELLS }
+            val s = side * side + edge * side + k
+            vertex(chunk, v, top); vertex(chunk, s, low)
+            assertEquals("fine skirt $edge/$k", drop, top.distanceTo(low), drop * 1e-4)
+            assertEquals("hangs straight down", drop, top.length - low.length, drop * 1e-3)
+            val coarse = chunk.coarseVertices!!
+            val a = Vec3(coarse[v * TerrainChunk.COARSE_STRIDE].toDouble(), coarse[v * TerrainChunk.COARSE_STRIDE + 1].toDouble(), coarse[v * TerrainChunk.COARSE_STRIDE + 2].toDouble())
+            val b = Vec3(coarse[s * TerrainChunk.COARSE_STRIDE].toDouble(), coarse[s * TerrainChunk.COARSE_STRIDE + 1].toDouble(), coarse[s * TerrainChunk.COARSE_STRIDE + 2].toDouble())
+            assertEquals("parent skirt $edge/$k", drop, a.distanceTo(b), drop * 1e-4)
+        }
+    }
 }

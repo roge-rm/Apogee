@@ -9,6 +9,7 @@ import kotlin.math.hypot
  * - One finger moving turns the view round the craft.
  * - A tap neither travels nor lingers; two close together are a double tap.
  * - A finger held still picks up the part under it and carries it until lifted.
+ * - A mouse drag that starts on a part lifts it at once, one on empty space turns the view.
  * - Two fingers pan (together) and zoom (apart). After two, the finger left behind doesn't turn
  *   the view.
  */
@@ -26,7 +27,7 @@ class BuilderGestures(private val listener: Listener) {
         fun zoom(factor: Float)
     }
 
-    private enum class Mode { IDLE, ONE, CARRYING, TWO, SPENT }
+    private enum class Mode { IDLE, ONE, CARRYING, TURNING, TWO, SPENT }
 
     private var mode = Mode.IDLE
     private var downX = 0f
@@ -41,9 +42,18 @@ class BuilderGestures(private val listener: Listener) {
     private var lastTapTime = Long.MIN_VALUE / 2
     private var lastTapX = 0f
     private var lastTapY = 0f
+    private var mouse = false
 
-    /** A first finger down at ([x], [y]). */
-    fun down(x: Float, y: Float, time: Long) {
+    /** Screen density against a phone's, which the distances below are for. */
+    var scale = 1f
+        set(value) { field = value.coerceIn(0.5f, 4f) }
+
+    private val tapSlop get() = TAP_SLOP * scale
+    private val doubleTapSlop get() = DOUBLE_TAP_SLOP * scale
+
+    /** A first finger down at ([x], [y]), or the left mouse button if [mouse]. */
+    fun down(x: Float, y: Float, time: Long, mouse: Boolean = false) {
+        this.mouse = mouse
         mode = Mode.ONE
         downX = x; downY = y; downTime = time
         lastX = x; lastY = y
@@ -64,8 +74,19 @@ class BuilderGestures(private val listener: Listener) {
         when (mode) {
             Mode.ONE -> {
                 travelled = maxOf(travelled, hypot(x - downX, y - downY))
-                listener.orbit(x - lastX, y - lastY)
+                if (!mouse) listener.orbit(x - lastX, y - lastY)
+                else if (travelled >= tapSlop) {
+                    // Dragged off: a part under where it went down comes with it, else the view turns.
+                    if (!pressed && listener.longPress(downX, downY)) {
+                        mode = Mode.CARRYING
+                        listener.carry(x, y)
+                    } else {
+                        mode = Mode.TURNING
+                        listener.orbit(x - downX, y - downY)
+                    }
+                }
             }
+            Mode.TURNING -> listener.orbit(x - lastX, y - lastY)
             Mode.CARRYING -> listener.carry(x, y)
             else -> {}
         }
@@ -94,8 +115,8 @@ class BuilderGestures(private val listener: Listener) {
             Mode.CARRYING -> listener.drop(x, y)
             Mode.ONE -> {
                 val moved = maxOf(travelled, hypot(x - downX, y - downY))
-                if (moved < TAP_SLOP && time - downTime < TAP_TIMEOUT) {
-                    if (time - lastTapTime < DOUBLE_TAP_WINDOW && hypot(x - lastTapX, y - lastTapY) < DOUBLE_TAP_SLOP) {
+                if (moved < tapSlop && time - downTime < TAP_TIMEOUT) {
+                    if (time - lastTapTime < DOUBLE_TAP_WINDOW && hypot(x - lastTapX, y - lastTapY) < doubleTapSlop) {
                         listener.doubleTap(x, y)
                         lastTapTime = Long.MIN_VALUE / 2
                     } else {
@@ -117,7 +138,7 @@ class BuilderGestures(private val listener: Listener) {
 
     /** Called by a timer set on finger down: a finger held still long enough is a long press. */
     fun tick(time: Long) {
-        if (mode != Mode.ONE || pressed || travelled >= TAP_SLOP || time - downTime < LONG_PRESS) return
+        if (mode != Mode.ONE || pressed || travelled >= tapSlop || time - downTime < LONG_PRESS) return
         pressed = true
         // If there's nothing to pick up, the finger can still turn the view.
         if (listener.longPress(lastX, lastY)) mode = Mode.CARRYING

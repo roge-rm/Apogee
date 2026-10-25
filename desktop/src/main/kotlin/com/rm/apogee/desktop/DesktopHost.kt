@@ -71,6 +71,7 @@ class DesktopHost(
     override val keyboardFirst = true
     override val savesToFiles = true
     override val canScaleRender = true
+    override var autoInterfaceScale: Float? by mutableStateOf(1f)
     override val canQuit = true
 
     /** What [renderAt] last asked for, which the window's size is multiplied by. */

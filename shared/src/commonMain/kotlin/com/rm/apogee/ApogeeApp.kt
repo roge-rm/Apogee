@@ -493,6 +493,7 @@ class ApogeeApp(private val host: AppHost) {
                         controllerName = controllerName,
                         onController = { navigateTo(AppScreen.CONTROLLER) },
                         fullScreen = if (host.canFullScreen) host.isFullScreen else null,
+                        autoInterfaceScale = host.autoInterfaceScale,
                         onFullScreen = host::setFullScreen,
                     )
                     AppScreen.CONTROLLER -> com.rm.apogee.ui.screens.ControllerScreen(
@@ -509,6 +510,7 @@ class ApogeeApp(private val host: AppHost) {
                             controllerName = controllerName,
                             onController = { flightControllerOpen = true },
                             fullScreen = if (host.canFullScreen) host.isFullScreen else null,
+                            autoInterfaceScale = host.autoInterfaceScale,
                             onFullScreen = host::setFullScreen,
                             inGame = true,
                         )
@@ -1294,6 +1296,7 @@ class ApogeeApp(private val host: AppHost) {
      * and F are map, stability, thrusters, brakes, gear and flaps. True if it was used.
      */
     fun key(code: String, down: Boolean): Boolean {
+        if (buildingKeys) return buildingKey(code, down)
         if (appScreen != AppScreen.FLIGHT || session == null) {
             keysDown.clear()
             return false
@@ -1328,6 +1331,24 @@ class ApogeeApp(private val host: AppHost) {
             else -> return false
         }
         return true
+    }
+
+    /** Whether keys go to the assembly building. */
+    val buildingKeys: Boolean get() = appScreen == AppScreen.BUILDER && builderSession != null && session == null
+
+    /** A key in the assembly building: Ctrl+Z and the like, see [BuilderKeys]. */
+    private fun buildingKey(code: String, down: Boolean): Boolean {
+        // Typing a name isn't building.
+        if (com.rm.apogee.ui.components.Typing.active) {
+            keysDown.clear()
+            return false
+        }
+        if (down) keysDown.add(code) else keysDown.remove(code)
+        if (!down) return false
+        val ctrl = "ControlLeft" in keysDown || "ControlRight" in keysDown
+        val shift = "ShiftLeft" in keysDown || "ShiftRight" in keysDown
+        val key = com.rm.apogee.game.BuilderKeys.map(code, ctrl, shift) ?: return false
+        return builderSession?.applyKey(key) == true
     }
 
     /** Lets go of every key, when the window loses the keyboard and key-ups won't come. */

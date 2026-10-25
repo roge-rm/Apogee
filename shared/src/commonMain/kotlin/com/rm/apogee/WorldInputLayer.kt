@@ -11,9 +11,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import kotlin.time.TimeSource
 
 /**
@@ -23,11 +26,12 @@ import kotlin.time.TimeSource
  *
  * It also clears its patch of the canvas, since Compose on the web paints it white every frame.
  *
- * A right-button drag acts as two fingers moving together, which pans in the assembly building.
+ * A right or middle button drag acts as two fingers moving together, which pans in the assembly building.
  */
 @Composable
 fun WorldInputLayer(gestures: WorldGestures) {
     val held = remember { Held() }
+    gestures.density = LocalDensity.current.density
     // A long press has to fire while the pointer's still and no events come, so time is passed on
     // every frame while it's down, on the events' clock.
     LaunchedEffect(gestures) {
@@ -53,14 +57,14 @@ fun WorldInputLayer(gestures: WorldGestures) {
                             }
                             PointerEventType.Press -> {
                                 val pressed = event.changes.filter { it.pressed }
-                                if (down == 0 && pressed.size == 1 && event.buttons.isSecondaryPressed) {
+                                if (down == 0 && pressed.size == 1 && (event.buttons.isSecondaryPressed || event.buttons.isTertiaryPressed)) {
                                     val p = pressed[0].position
                                     gestures.down(p.x, p.y, time)
                                     gestures.secondDown(p.x, p.y, p.x + TWIN, p.y)
                                     held.twin = true
                                 } else if (down == 0 && pressed.size == 1) {
                                     val p = pressed[0].position
-                                    gestures.down(p.x, p.y, time)
+                                    gestures.down(p.x, p.y, time, mouse = pressed[0].type == PointerType.Mouse)
                                 } else if (pressed.size >= 2) {
                                     val (a, b) = pressed[0].position to pressed[1].position
                                     gestures.secondDown(a.x, a.y, b.x, b.y)

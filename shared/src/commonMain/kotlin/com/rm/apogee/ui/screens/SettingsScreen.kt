@@ -87,6 +87,8 @@ fun SettingsScreen(
     /** Whether the window is full screen, or null where that isn't a choice. */
     fullScreen: Boolean? = null,
     onFullScreen: (Boolean) -> Unit = {},
+    /** What Auto gives for the interface size, or null where the size isn't a choice. */
+    autoInterfaceScale: Float? = null,
     inGame: Boolean = false,
 ) {
     // Not kept across visits: Settings always opens on the first tab.
@@ -157,7 +159,7 @@ fun SettingsScreen(
                 when (tab) {
                     SettingsTab.PLAYER -> PlayerTab(settings, wide)
                     SettingsTab.CONTROLS -> ControlsTab(settings, wide, controllerName, onController)
-                    SettingsTab.DISPLAY -> DisplayTab(settings, wide, detectedTier, canScaleRender, fullScreen, onFullScreen)
+                    SettingsTab.DISPLAY -> DisplayTab(settings, wide, detectedTier, canScaleRender, fullScreen, onFullScreen, autoInterfaceScale)
                     SettingsTab.AUDIO -> AudioTab(settings, wide)
                 }
             }
@@ -306,8 +308,21 @@ private fun DisplayTab(
     canScaleRender: Boolean,
     fullScreen: Boolean?,
     onFullScreen: (Boolean) -> Unit,
+    autoInterfaceScale: Float?,
 ) = SettingsColumns(wide, left = {
     if (fullScreen != null) SwitchRow(title = "Full screen", checked = fullScreen, onCheckedChange = onFullScreen)
+    if (autoInterfaceScale != null) {
+        // The far left is Auto, then 100% to 250% in 25% steps.
+        val chosen = settings.interfaceScale
+        SliderRow(
+            title = "Interface size",
+            value = if (chosen <= 0f) 0.75f else chosen,
+            onValueChange = { settings.interfaceScale = if (it < 0.875f) 0f else kotlin.math.round(it * 4f) / 4f },
+            valueLabel = if (chosen <= 0f) "Auto (${(autoInterfaceScale * 100).roundToInt()}%)" else "${(chosen * 100).roundToInt()}%",
+            range = 0.75f..2.5f,
+            steps = 6,
+        )
+    }
     SliderRow(
         title = "Text size",
         value = settings.textScale,

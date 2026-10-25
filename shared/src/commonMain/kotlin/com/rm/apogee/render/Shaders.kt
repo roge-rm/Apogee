@@ -904,6 +904,7 @@ object Shaders {
         uniform float uTide;
         uniform vec3 uBodyCentre;
         uniform float uMethane;  // 1 for a sea of liquid methane
+        uniform float uSkirtDrop;  // metres this chunk's skirts hang below its edges
         $SEA_EDGE
         #ifdef NO_TSUNAMI
         $TSUNAMI_NONE
@@ -931,6 +932,8 @@ object Shaders {
         // Constant across a skirt triangle, including its upper lip, with its ground normal.
         flat out float vSkirt;
         out vec3 vGroundNormal;
+        // How far a skirt point is below its edge: 0 along the edge, uSkirtDrop at the bottom.
+        out float vSkirtDepth;
         // A tsunami's seconds since its crest and whiteness, for its foam (see TSUNAMI_FOAM), and
         // its period.
         out vec2 vTsunami;
@@ -940,6 +943,7 @@ object Shaders {
             vec4 worldPos = uModel * vec4(aPosition, 1.0);
             vec4 coarsePos = uModel * vec4(aCoarsePosition, 1.0);
             vSkirt = aWet >= 3.5 ? 1.0 : 0.0;
+            vSkirtDepth = aWet >= 3.5 ? uSkirtDrop : 0.0;
             float code = aWet >= 3.5 ? aWet - 4.0 : aWet;
             float coarseCode = aCoarseWet >= 3.5 ? aCoarseWet - 4.0 : aCoarseWet;
             vCoarseLower = aCoarseColour;
@@ -1067,6 +1071,7 @@ object Shaders {
         in vec3 vPosition;
         flat in float vSkirt;
         in vec3 vGroundNormal;
+        in float vSkirtDepth;
         in vec2 vTsunami;
         flat in float vTsunamiPeriod;
 
@@ -1112,8 +1117,14 @@ object Shaders {
             // rough ground as the detail changes.
             vec3 n = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
             if (dot(n, viewDir) < 0.0) n = -n;
-            // A skirt hides a crack, so light it like the ground above it.
-            if (vSkirt > 0.001) n = normalize(vGroundNormal);
+            // A skirt hides a crack, so light it like the ground above it: that ground's normal,
+            // shadow and sea dark. Far off, depth precision lets skirts show along the seams, and
+            // lit where they hang, kilometres down, the sea's dark made them black.
+            vec3 ground = vPosition;
+            if (vSkirt > 0.001) {
+                n = normalize(vGroundNormal);
+                ground += normalize(vPosition - uBodyCentre) * vSkirtDepth;
+            }
             // Far water and its crack-hiding skirts share one continuous sea normal.
             if (vWet > 0.5) n = normalize(vPosition - uBodyCentre);
             vec3 surface = vColour;
@@ -1142,7 +1153,7 @@ object Shaders {
                 return;
             }
 
-            float direct = directLight(vPosition, n);
+            float direct = directLight(ground, n);
             float lambert = max(dot(n, uSunDirection), 0.0) * direct;
             float daylight = smoothstep(-0.08, 0.35, dot(n, uSunDirection));
             // In a whiteout the light comes from all round, as bright on every slope.
@@ -1150,7 +1161,7 @@ object Shaders {
             daylight = mix(daylight, uDaylight, uFlatLight);
             // A faint blue full moon keeps the land's shape after dark.
             vec3 night = MOON * (0.55 + 0.45 * max(-dot(n, uSunDirection), 0.0) * direct) * (0.4 + 0.6 * uLightScale);
-            vec3 sea = underSea(vPosition);
+            vec3 sea = underSea(ground);
             vec3 lit = surface * (night * moonLeft(uDaylight) + duskGlow(uDaylight) + (0.06 + lambert * 1.10 * uLightScale) * daylight) * sea;
             lit += surface * FLASH * uFlash * sea;
             if (uLampCount > 0) lit += surface * lampLight(vPosition, n);

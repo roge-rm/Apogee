@@ -104,6 +104,9 @@ object TerrainChunk {
     /** Metres across a chunk at [level] on a body of [radius]. */
     fun size(radius: Double, level: Int): Double = radius * Math.PI / 2.0 / (1 shl level)
 
+    /** How far each skirt hangs below its edge at [level], in metres: three cells. */
+    fun skirtDrop(radius: Double, level: Int): Double = size(radius, level) / CELLS * 3.0
+
     /**
      * The triangle list every chunk shares: the grid, split on the collider's diagonal, and the
      * skirts. Laid out a quarter at a time (quarter `dj * 2 + di` holds the cells [ChunkKey.child]
@@ -217,7 +220,6 @@ object TerrainChunk {
         val centre = Vec3(dx[mid] * centreRadius, dy[mid] * centreRadius, dz[mid] * centreRadius)
 
         val vertices = FloatArray(VERTEX_COUNT * STRIDE_FLOATS)
-        val cellMetres = size(radius, key.level) / CELLS
         var bound = 0.0
         var waterBound = 0.0
 
@@ -279,7 +281,7 @@ object TerrainChunk {
         }
 
         // Skirts: each edge vertex dropped a few cells straight down, keeping normal and colour.
-        val drop = (cellMetres * 3.0).toFloat()
+        val drop = skirtDrop(radius, key.level).toFloat()
         val edgeIndex = arrayOf(
             IntArray(SIDE) { it }, IntArray(SIDE) { CELLS * SIDE + it },
             IntArray(SIDE) { it * SIDE }, IntArray(SIDE) { it * SIDE + CELLS },
@@ -354,7 +356,7 @@ object TerrainChunk {
             faceColour(x + 1.0 / 6.0, y - 1.0 / 3.0, o + 6)
             faceColour(x - 1.0 / 6.0, y + 1.0 / 3.0, o + 13)
         }
-        val drop = (size(radius, chunk.key.level) / CELLS * 3.0).toFloat()
+        val drop = skirtDrop(radius, chunk.key.level).toFloat()
         for (edge in 0..3) for (k in 0 until SIDE) {
             val v = when (edge) { 0 -> k; 1 -> CELLS * SIDE + k; 2 -> k * SIDE; else -> k * SIDE + CELLS }
             val from = v * COARSE_STRIDE
