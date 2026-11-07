@@ -721,11 +721,15 @@ class BuilderSession(
         revision++
     }
 
+    /** A builder dialog owns the keyboard, including dialogs without text fields. */
+    var keysBlocked = false
+
     /**
      * A key in the building, by [BuilderKeys] mapping. True if it was used. Esc only counts when
      * there was something to cancel, so it can still go back.
      */
     fun applyKey(key: BuilderKey): Boolean {
+        if (keysBlocked) return false
         // Undo changes the craft under a piece being carried, so the carry ends first, as Esc does.
         if ((key == BuilderKey.UNDO || key == BuilderKey.REDO) && carry != null) cancelCarry()
         when (key) {
@@ -1120,12 +1124,15 @@ class BuilderSession(
     /** The open node or joint nearest ([x], [y]) that [held] could go on or into, within reach. */
     private fun pickSpot(x: Float, y: Float, width: Float, height: Float, held: String, design: CraftDesign): Spot? {
         var best: Spot? = null
-        var bestDistance = TAP_RADIUS_PIXELS * TAP_RADIUS_PIXELS
+        var bestDistance = Float.POSITIVE_INFINITY
         for (spot in usableNodes(design, held).map { Spot(it) } + insertSpots(design, held)) {
             val screen = project(spot.node.position, width, height) ?: continue
             val dx = screen.first - x
             val dy = screen.second - y
-            val distance = dx * dx + dy * dy
+            val pixels = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (pixels > TAP_RADIUS_PIXELS) continue
+            // Thin rings put their waist nodes close to stack ends in the view.
+            val distance = pixels + if (spot.node.kind == com.rm.apogee.core.part.AttachNodeKind.SURFACE) 16f else 0f
             if (distance < bestDistance) {
                 bestDistance = distance
                 best = spot

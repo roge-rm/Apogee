@@ -13,7 +13,7 @@ class SeaSurface(
     val origin: Vec3,
     /**
      * [STRIDE] floats per vertex: position from [origin] (body-fixed), colour, rise rate, and a
-     * tsunami's seconds since its crest (Tsunamis.crest) and its whiteness packed with its period (SeaScene.packTsunami), for its foam.
+     * tsunami's seconds since its crest (Tsunamis.crest) and its whiteness packed with its period (SeaScene.packTsunami), for its foam, then the depth below datum in metres.
      */
     val vertices: FloatArray,
     val vertexCount: Int,
@@ -44,7 +44,7 @@ class SeaSurface(
     }
 
     companion object {
-        /** Position(3), colour(4), rise(1), tsunami crest and whiteness(2). */
-        const val STRIDE = 10
+        /** Position(3), colour(4), rise(1), tsunami crest and whiteness(2), bed depth(1). */
+        const val STRIDE = 11
     }
 }

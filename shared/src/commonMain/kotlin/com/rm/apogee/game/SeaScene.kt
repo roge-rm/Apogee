@@ -320,6 +320,7 @@ class SeaScene(
             }
             out[o + 8] = crest.toFloat()
             out[o + 9] = if (methane) 0f else packTsunami(white, period)
+            out[o + 10] = kotlin.math.max(sample.depth - sample.tide, 0.0).toFloat()
             depths?.set(index, sample.depth.toFloat())
         }
 
@@ -338,6 +339,7 @@ class SeaScene(
         out[o + 3] = DEEP_R.toFloat(); out[o + 4] = DEEP_G.toFloat(); out[o + 5] = DEEP_B.toFloat(); out[o + 6] = DEEP_ALPHA
         out[o + 7] = 0f
         out[o + 8] = com.rm.apogee.core.weather.Weather.TSUNAMI_NO_CREST.toFloat(); out[o + 9] = 0f
+        out[o + 10] = 1000f
     }
 
     /**

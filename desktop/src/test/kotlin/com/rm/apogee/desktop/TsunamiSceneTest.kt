@@ -266,7 +266,7 @@ class TsunamiSceneTest(
          * with [items] too, once everything near is built. Writes [name] if given. Without
          * [waves], no near sea, as in flight above its reach.
          */
-        fun shoot(name: String?, camera: Vec3, rotation: Quat, time: Double, items: List<RenderItem> = emptyList(), near: Double = 10.0, waves: Boolean = true, compareLegacy: Boolean = false): Shot {
+        fun shoot(name: String?, camera: Vec3, rotation: Quat, time: Double, items: List<RenderItem> = emptyList(), near: Double = 10.0, waves: Boolean = true, compareLegacy: Boolean = false, compareEnvelope: Boolean = false, overlapField: Boolean = false, compareBaked: Boolean = false): Shot {
             val up = Vec3().setTo(camera).normalizeInPlace()
             val altitude = camera.length - radius - maxOf(field.elevation(up), 0.0)
             val sea = SeaScene(terra, if (lunarTide) luna else null, config, tier, scope).also { s ->
@@ -274,13 +274,25 @@ class TsunamiSceneTest(
             }
             val tsunamis = TsunamiScene(terra, config, tier, scope)
             listed(tsunamis, camera, time)
-            if (compareLegacy) assertNotNull("tsunami field", tsunamis.field)
+            val drawField = tsunamis.field?.let { f ->
+                if (!overlapField) f else {
+                    // A controlled second front with near-equal size, crossing from weaker to stronger.
+                    val second = FloatArray(f.first.size) { k ->
+                        val size = 0.96 + 0.08 * (k % TsunamiField.SIDE) / (TsunamiField.SIDE - 1)
+                        TsunamiField.packTau(TsunamiField.unpackTau(f.first[k]) + 20.0, TsunamiField.unpackDeep(f.first[k]) * size)
+                    }
+                    TsunamiField(f.centre, f.east, f.north, f.spacing, f.values, f.shore,
+                        f.first, second, f.time, f.period, f.period, f.coastCap, f.coastCap,
+                        f.shoalScale, f.radius, f.flood)
+                }
+            }
+            if (compareLegacy) assertNotNull("tsunami field", drawField)
             // The sun high behind the camera, so the water shows its colour, not the sun's glint.
             val back = rotation.rotate(Vec3(0.0, 0.0, 1.0), Vec3()).let { it.addScaledInPlace(up, -(it dot up)) }
             val sun = Vec3().setTo(up).addScaledInPlace(if (back.length > 0.1) back.normalizeInPlace() else north(up), 0.6).normalizeInPlace()
             fun frame(): RenderFrame {
                 val here = sea.sampleAt(camera, time)
-                val tf = tsunamis.field
+                val tf = drawField
                 val world = WorldView(
                     radius, terra.atmosphereHeight, terra.atmosphere?.scaleHeight ?: 1.0, sun, Vec3.unitY(), camera.length - radius, Quat.identity(),
                     terra.terrain!!.maxElevation, drawFarSurface = terrain.farSurfaceNeeded, chunkRange = terrain.chunkRange, time = time,
@@ -295,9 +307,9 @@ class TsunamiSceneTest(
             var readyAt = 0L
             while (System.nanoTime() < deadline) {
                 terrain.collect()
-                terrain.followCraft(terra, camera, altitude, scope, tsunamis.field?.flood)
+                terrain.followCraft(terra, camera, altitude, scope, drawField?.flood)
                 terrain.requestGlobe(terra, scope)
-                sea.tsunamiField = tsunamis.field
+                sea.tsunamiField = drawField
                 if (waves) sea.update(camera, time)
                 bus.clear(); bus.publish(frame())
                 GL30C.glBindFramebuffer(GL30C.GL_FRAMEBUFFER, fbo)
@@ -313,7 +325,7 @@ class TsunamiSceneTest(
             var most = 0.0
             if (waves) repeat(5) {
                 Thread.sleep(150)
-                sea.tsunamiField = tsunamis.field
+                sea.tsunamiField = drawField
                 sea.update(camera, time + 0.2 * (it + 1))
                 Thread.sleep(5)
                 val until = System.nanoTime() + 5_000_000_000L
@@ -342,6 +354,67 @@ class TsunamiSceneTest(
                 val out = File("../build/tsunami-review").apply { mkdirs() }
                 javax.imageio.ImageIO.write(image, "png", File(out, "$name$tag.png"))
                 println("wrote ${File(out, "$name$tag.png").canonicalPath}")
+            }
+            if (compareBaked) {
+                assertTrue("baked sea selected", tier == QualityTier.LOW || drawField == null)
+                fun original(name: String): String {
+                    val source = javaClass.getResource("/sea-reference/$name")!!.readText()
+                    return Regex("""\$\{?([A-Z_]+)\}?""").replace(source) { match ->
+                        Shaders::class.java.getDeclaredField(match.groupValues[1]).also { it.isAccessible = true }.get(Shaders) as String
+                    }
+                }
+                val program = GlRenderer::class.java.getDeclaredField("seaBakedProgram").also { it.isAccessible = true }
+                val candidate = program.get(renderer)
+                val reference = ShaderProgram(original("baked.vert.glsl"), original("baked.frag.glsl"), "sea-baked-reference")
+                try {
+                    program.set(renderer, reference)
+                    renderer.onDrawFrame()
+                    val pixels = BufferUtils.createByteBuffer(width * height * 4)
+                    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
+                    var changed = 0
+                    for (i in 0 until width * height) {
+                        if ((0..2).any { c -> kotlin.math.abs((data.get(i * 4 + c).toInt() and 255) - (pixels.get(i * 4 + c).toInt() and 255)) > 1 }) changed++
+                    }
+                    println("baked reference $name$tag: $changed pixels over 1 level; field ${drawField?.period}/${drawField?.period2}; tier $tier")
+                    assertEquals("baked sea matches original shader", 0, changed)
+                } finally { program.set(renderer, candidate); reference.release() }
+            }
+            if (compareEnvelope) {
+                val program = GlRenderer::class.java.getDeclaredField("seaProgram").also { it.isAccessible = true }
+                val candidate = program.get(renderer)
+                val exactSource = Shaders.SEA_FRAGMENT.replace("#define SEA_VERTEX_ENVELOPE", "")
+                fun readSea(fragment: String): java.awt.image.BufferedImage {
+                    val shader = ShaderProgram(Shaders.SEA_VERTEX, fragment, "sea-envelope-reference")
+                    try {
+                        program.set(renderer, shader)
+                        renderer.onDrawFrame()
+                        val pixels = BufferUtils.createByteBuffer(width * height * 4)
+                        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
+                        val shot = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_RGB)
+                        for (y in 0 until height) for (x in 0 until width) {
+                            val i = ((height - 1 - y) * width + x) * 4
+                            shot.setRGB(x, y, ((pixels.get(i).toInt() and 255) shl 16) or ((pixels.get(i + 1).toInt() and 255) shl 8) or (pixels.get(i + 2).toInt() and 255))
+                        }
+                        return shot
+                    } finally { program.set(renderer, candidate); shader.release() }
+                }
+                val exact = readSea(exactSource)
+                val noFoam = readSea(exactSource.replace("tsunami = tsunamiFoam(", "tsunami = 0.0 * tsunamiFoam("))
+                fun difference(a: Int, b: Int) = (0..2).maxOf { kotlin.math.abs(((a shr (8 * it)) and 255) - ((b shr (8 * it)) and 255)) }
+                var changed = 0; var foam = 0; var most = 0
+                for (y in 0 until height) for (x in 0 until width) {
+                    val d = difference(image.getRGB(x, y), exact.getRGB(x, y))
+                    most = maxOf(most, d)
+                    if (d > 2) changed++
+                    if (difference(exact.getRGB(x, y), noFoam.getRGB(x, y)) > 2) foam++
+                }
+                println("envelope $name$tag: $changed pixels over 2 levels, max $most, $foam visible foam pixels; field ${drawField?.period}/${drawField?.period2}")
+                assertTrue("envelope difference: $changed pixels", changed <= width * height / 100)
+                if (name != null) {
+                    val out = File("../build/tsunami-review").apply { mkdirs() }
+                    javax.imageio.ImageIO.write(exact, "png", File(out, "exact-$name$tag.png"))
+                    javax.imageio.ImageIO.write(noFoam, "png", File(out, "no-foam-$name$tag.png"))
+                }
             }
             if (compareLegacy) {
                 renderer.debugLegacyTsunamiTerrain = true
@@ -411,7 +484,11 @@ class TsunamiSceneTest(
     }
 
     /** When the bore's front (or out at sea, its pale crest line at least [least] white) reaches unit [p], near the crest at the berth. */
-    private fun frontAt(p: Vec3, least: Double = 0.99): Double {
+    private fun frontAt(p: Vec3, least: Double = 0.99): Double = findFrontAt(p, least) ?: event.crest.also {
+        println("No foam >= $least at $p near the berth crest; using berth crest time $it")
+    }
+
+    private fun findFrontAt(p: Vec3, least: Double): Double? {
         val e = event
         val w = Weather(terra, config)
         val bed = field.elevation(p)
@@ -421,7 +498,7 @@ class TsunamiSceneTest(
             if (w.tsunamiFoam() >= least) return t
             t += 1.0
         }
-        return e.crest
+        return null
     }
 
     /** Low land near the berth the crest floods, and sea floor by it the trough leaves dry. */
@@ -759,6 +836,43 @@ class TsunamiSceneTest(
         } finally { scope.cancel() }
     }
 
+    fun qualityPicture(tier: QualityTier, beforeEvent: Boolean = false) {
+        TestGl.current()
+        val camera = above(out(-1_000.0), 3_500.0)
+        val distance = if (findFrontAt(out(7_000.0), 0.5) != null) 7_000.0 else 9_000.0
+        val time = if (beforeEvent) event.tsunami.start - 600.0 else findFrontAt(out(distance), 0.5)!!
+        Harness(tier).use { h ->
+            h.shoot("quality-${tier.name.lowercase()}-${if (beforeEvent) "calm" else "tsunami"}", camera,
+                look(camera, Vec3().setTo(out(distance)).mulInPlace(radius), berth), time,
+                compareEnvelope = tier != QualityTier.LOW && !beforeEvent,
+                compareBaked = tier == QualityTier.LOW || beforeEvent)
+        }
+    }
+
+    fun controlledOverlapPicture() {
+        TestGl.current()
+        val camera = above(out(-2_000.0), 2_500.0)
+        Harness(QualityTier.MEDIUM).use { h ->
+            h.shoot("overlap", camera, look(camera, Vec3().setTo(out(5_000.0)).mulInPlace(radius), berth),
+                frontAt(out(5_000.0), 0.5), compareEnvelope = true, overlapField = true)
+        }
+    }
+
+    @Test fun envelopeDecayPictures() {
+        TestGl.current()
+        val e = event
+        val camera = above(out(-1_000.0), 3_500.0)
+        val rotation = look(camera, Vec3().setTo(out(3_000.0)).mulInPlace(radius), berth)
+        Harness(QualityTier.MEDIUM).use { h ->
+            for (fraction in listOf(0.50, 0.65, 0.79, 0.90, 0.99)) {
+                val target = e.arrives + 7_200.0 * fraction
+                val time = if (fraction < 0.7) e.crest + kotlin.math.floor((target - e.crest) / e.period) * e.period else target
+                println("decay ${(fraction * 100).toInt()}: age ${time - e.arrives}")
+                h.shoot("decay-${(fraction * 100).toInt()}", camera, rotation, time, compareEnvelope = true)
+            }
+        }
+    }
+
     /** Pictures for a look by eye, written only with a display. */
     @Test fun pictures() {
         TestGl.current()
@@ -799,21 +913,12 @@ class TsunamiSceneTest(
             run {
                 val camera = above(out(-1_000.0), 3_500.0)
                 // A gentle crest's line ends where the wave starts to steepen, so for a small one 9 km out.
-                val seven = frontAt(out(7_000.0), 0.5)
-                h.shoot("crest-from-air", camera, look(camera, Vec3().setTo(out(7_000.0)).mulInPlace(radius), berth), if (seven != e.crest) seven else frontAt(out(9_000.0), 0.5))
-            }
-            // Two overlapping: the second's front running in behind the first's, from the air.
-            run {
-                val live = ArrayList<LiveTsunami>()
-                Weather(terra, config).tsunamis(berth, e.crest, 1e9, live)
-                val other = live.filter { it.id != e.tsunami.id && !it.arrivesHere.isNaN() && it.arrivesHere < 1e29 }
-                    .minByOrNull { kotlin.math.abs(it.arrivesHere - e.arrives) }
-                if (other != null) {
-                    val time = other.arrivesHere + 0.5 * other.period
-                    println("overlap: ${e.tsunami.id} arrives %.0f s, ${other.id} %.0f s, picture at %.0f s".format(e.arrives, other.arrivesHere, time))
-                    val camera = above(out(-2_000.0), 2_500.0)
-                    h.shoot("overlap", camera, look(camera, Vec3().setTo(out(5_000.0)).mulInPlace(radius), berth), time)
-                }
+                val distance = listOf(7_000.0, 9_000.0).firstOrNull { findFrontAt(out(it), 0.5) != null }
+                assertNotNull("a visible crest line 7 or 9 km offshore", distance)
+                val crest = out(distance!!)
+                val time = findFrontAt(crest, 0.5)!!
+                println("crest-from-air: %.0f m offshore at %.0f s".format(distance, time))
+                h.shoot("crest-from-air", camera, look(camera, Vec3().setTo(crest).mulInPlace(radius), berth), time, compareEnvelope = true)
             }
             // A boat carried in on the flood, the bore running on inland past it.
             run {
@@ -868,4 +973,15 @@ class TsunamiSceneTest(
 class TsunamiTideSceneTest {
     @Test fun farFloodedLandIncludesTheLunarTide() =
         TsunamiSceneTest(6.6).checkFarFlood(lunarTide = true)
+}
+
+/** A controlled second front checks selection when two waves are nearly the same size. */
+class TsunamiEnvelopeOverlapTest {
+    @Test fun closeSizedFrontsMatchTheExactEnvelope() = TsunamiSceneTest(3.0).controlledOverlapPicture()
+}
+
+class TsunamiSeaQualityTest {
+    @Test fun lowKeepsTheOriginalBakedSeaWithAnActiveField() = TsunamiSceneTest(3.7).qualityPicture(QualityTier.LOW)
+    @Test fun mediumKeepsTheCorrectedCrest() = TsunamiSceneTest(3.7).qualityPicture(QualityTier.MEDIUM)
+    @Test fun noFieldUsesTheOriginalBakedSea() = TsunamiSceneTest(3.7).qualityPicture(QualityTier.MEDIUM, beforeEvent = true)
 }

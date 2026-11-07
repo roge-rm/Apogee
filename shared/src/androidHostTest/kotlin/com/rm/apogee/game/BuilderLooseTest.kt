@@ -19,6 +19,45 @@ import org.junit.rules.TemporaryFolder
 class BuilderLooseTest {
     @get:Rule val folder = TemporaryFolder()
 
+    @Test fun `dialogs keep builder keys out and release them on closing`() {
+        val session = BuilderSession(FrameBus(), StockParts.catalog, CraftStore(folder.newFolder("modal")))
+        session.edit(StockCraft.sounder(StockParts.catalog))
+        session.selectPart("decoupler-ring")
+        val before = session.builder.design
+        session.keysBlocked = true
+        for (key in BuilderKey.entries) assertFalse("$key", session.applyKey(key))
+        assertEquals(before, session.builder.design)
+        assertEquals("decoupler-ring", session.held?.partId)
+        assertTrue(session.savedCraft.isEmpty())
+        session.keysBlocked = false
+        assertTrue(session.applyKey(BuilderKey.CANCEL))
+        assertNull(session.held)
+    }
+
+    @Test fun `a ring stack end wins over nearby waist nodes but sides remain usable`() {
+        val catalog = StockParts.catalog
+        val bus = FrameBus()
+        val session = BuilderSession(bus, catalog, CraftStore(folder.newFolder("snap")))
+        session.builder.placeRoot("decoupler-ring")
+        session.setViewSize(1000f, 800f)
+        session.camera.distance = 18.0
+        session.camera.pitch = 0.1
+        BuilderSession::class.java.getDeclaredMethod("publishFrame").apply { isAccessible = true }.invoke(session)
+        val frame = bus.latest()!!.latest
+        val picker = MapPicking(frame.cameraPosition, frame.cameraRotation, 1000f, 800f)
+        val bottom = catalog["decoupler-ring"]!!.attachNodes.first { it.id == "bottom" }
+        val at = picker.project(bottom.position)!!
+        session.selectPart("tank-cask2")
+        session.tap(at.first, at.second - 3f, 1000f, 800f)
+        assertEquals("bottom", session.builder.design.parts.last().parentNodeId)
+        session.undo()
+        val side = catalog["decoupler-ring"]!!.surfaceNodes.first { it.position.x > 0.0 }
+        val beside = picker.project(side.position)!!
+        session.selectPart("tank-cask2")
+        session.tap(beside.first, beside.second, 1000f, 800f)
+        assertEquals(side.id, session.builder.design.parts.last().parentNodeId)
+    }
+
     @Test fun `loose pieces stop launch and save, count for nothing and survive leaving`() {
         val store = CraftStore(folder.newFolder("craft"))
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

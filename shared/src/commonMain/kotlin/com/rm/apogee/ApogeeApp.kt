@@ -1338,8 +1338,8 @@ class ApogeeApp(private val host: AppHost) {
 
     /** A key in the assembly building: Ctrl+Z and the like, see [BuilderKeys]. */
     private fun buildingKey(code: String, down: Boolean): Boolean {
-        // Typing a name isn't building.
-        if (com.rm.apogee.ui.components.Typing.active) {
+        // Dialogs and text fields own the keyboard.
+        if (com.rm.apogee.ui.components.Typing.active || builderSession?.keysBlocked == true) {
             keysDown.clear()
             return false
         }

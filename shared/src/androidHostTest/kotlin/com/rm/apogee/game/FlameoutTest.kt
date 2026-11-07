@@ -1,11 +1,15 @@
 package com.rm.apogee.game
 
 import com.rm.apogee.core.craft.CraftDesign
+import com.rm.apogee.core.craft.PlacedPart
+import com.rm.apogee.core.craft.Stage
 import com.rm.apogee.core.craft.StockCraft
 import com.rm.apogee.core.craft.Vessel
 import com.rm.apogee.core.craft.VesselId
+import com.rm.apogee.core.math.Vec3
 import com.rm.apogee.core.part.StockParts
 import com.rm.apogee.core.world.Forces
+import com.rm.apogee.core.world.World
 import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -59,5 +63,42 @@ class FlameoutTest {
         }
         assertTrue(both[0] < 0.75)
         assertEquals(1.0, both[1], 0.0)
+    }
+
+    @Test
+    fun `staging preserves each surviving rotor's eased spin and phase`() {
+        val heli = StockCraft.hummingbird(catalog)
+        val parts = heli.parts
+        val phase = DoubleArray(parts.size) { it * 0.4 }
+        val spin = DoubleArray(parts.size) { 0.65 + it * 0.001 }
+        val remaining = parts.indices.filter { it % 2 == 0 }.reversed()
+        val staged = heli.copy(parts = remaining.map { parts[it].copy(parentIndex = -1) })
+        val keptPhase = GameSession.remapPartAnimation(heli, staged, phase, 0.0)
+        val keptSpin = GameSession.remapPartAnimation(heli, staged, spin, 1.0)
+        for (i in remaining.indices) {
+            assertEquals(phase[remaining[i]], keptPhase[i], 0.0)
+            assertEquals(spin[remaining[i]], keptSpin[i], 0.0)
+        }
+        val newPart = parts.first().copy(position = Vec3(100.0, 0.0, 0.0))
+        val joined = staged.copy(parts = staged.parts + newPart)
+        assertEquals(1.0, GameSession.remapPartAnimation(staged, joined, keptSpin, 1.0).last(), 0.0)
+    }
+
+    @Test
+    fun `a world stage keeps the surviving rotor's animation after renumbering`() {
+        val design = CraftDesign("Rotor stage", listOf(
+            PlacedPart("pod-halo", Vec3.zero()),
+            PlacedPart("decoupler-ring", Vec3(0.0, -1.0, 0.0), parentIndex = 0),
+            PlacedPart("tank-cask2", Vec3(0.0, -3.0, 0.0), parentIndex = 1),
+            PlacedPart("rotor-main", Vec3(0.0, 1.0, 0.0), parentIndex = 0),
+        ), listOf(Stage(listOf(1))), catalog.contentHash)
+        val world = World.default(catalog)
+        val vessel = world.spawnOnSurface(design, World.launchSites.first())
+        world.stage(vessel)
+        assertEquals(listOf("pod-halo", "rotor-main"), vessel.design.parts.map { it.partId })
+        val spin = GameSession.remapPartAnimation(design, vessel.design, doubleArrayOf(1.0, 1.0, 1.0, 0.67), 1.0)
+        assertEquals(0.67, spin[1], 0.0)
+        val phase = GameSession.remapPartAnimation(design, vessel.design, doubleArrayOf(0.0, 0.0, 0.0, 2.7), 0.0)
+        assertEquals(2.7, phase[1], 0.0)
     }
 }

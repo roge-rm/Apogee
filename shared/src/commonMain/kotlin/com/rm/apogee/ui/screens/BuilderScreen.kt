@@ -71,6 +71,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -126,6 +127,12 @@ fun BuilderScreen(
     var showNameDialog by remember { mutableStateOf(false) }
     var savingAssembly by remember { mutableStateOf<String?>(null) }
     var confirmNew by remember { mutableStateOf(false) }
+
+    val dialogOpen = showLoadDialog || showSiteDialog || showNameDialog || savingAssembly != null || confirmNew
+    DisposableEffect(session, dialogOpen) {
+        session.keysBlocked = dialogOpen
+        onDispose { session.keysBlocked = false }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val portrait = maxWidth < maxHeight

@@ -15,6 +15,32 @@ import org.junit.Test
 import kotlin.math.sqrt
 
 class MapSelectionTest {
+    @Test fun aNearSurfacePathCanBePickedInFrontOfTheWorldCentre() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val world = World.default(StockParts.catalog)
+        val radius = world.system.body("terra").radius
+        val session = GameSession.hostLocal(FrameBus(), null, "Mapper", "map-test", scope = scope, world = world)
+        try {
+            session.mapMode = true
+            // Keep the drawn view fixed, without network or camera updates moving the tap target.
+            val viewClass = GameSession::class.java.declaredClasses.first { it.simpleName == "MapView" }
+            val constructor = viewClass.declaredConstructors.first { it.parameterCount == 16 }.apply { isAccessible = true }
+            val view = constructor.newInstance(
+                Vec3(0.0, 0.0, radius + 1000.0), Quat.identity(), doubleArrayOf(100.0, 200.0),
+                arrayOf(Vec3(-20.0, 0.0, radius + 200.0), Vec3(20.0, 0.0, radius + 200.0)),
+                null, emptyList<Any>(), 1000.0, emptyList<Any>(), emptyList<Any>(), 0.0,
+                radius, Vec3(), Vec3(), emptyList<Any>(), "terra", doubleArrayOf(100.0, 100.0),
+            )
+            GameSession::class.java.getDeclaredField("mapView").apply { isAccessible = true }.set(session, view)
+            assertTrue(session.mapTap(500f, 400f, 1000f, 800f))
+            assertEquals(MapPickKind.PATH, session.mapSelection.selected?.kind)
+            assertEquals(150.0, session.mapSelection.selected!!.time, 1e-3)
+            // Clear of the path, the visible world disk still works.
+            assertTrue(session.mapTap(800f, 400f, 1000f, 800f))
+            assertEquals(MapPickKind.WORLD, session.mapSelection.selected?.kind)
+        } finally { session.stop(); scope.cancel() }
+    }
+
     @Test fun selectionIsSeparateFromTargetingBurnsAndFocus() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val world = World.default(StockParts.catalog)

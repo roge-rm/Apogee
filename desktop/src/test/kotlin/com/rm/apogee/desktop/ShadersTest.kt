@@ -26,6 +26,7 @@ class ShadersTest {
             Triple(Shaders.SCATTER_VERTEX, Shaders.SCATTER_FRAGMENT, "scatter"),
             Triple(Shaders.SCATTER_VERTEX, Shaders.DEPTH_FRAGMENT, "scatter-depth"),
             Triple(Shaders.SEA_VERTEX, Shaders.SEA_FRAGMENT, "sea"),
+            Triple(Shaders.SEA_VERTEX_BAKED, Shaders.SEA_FRAGMENT_BAKED, "sea-baked"),
             Triple(Shaders.SKY_VERTEX, Shaders.SKY_FRAGMENT, "sky"),
             Triple(Shaders.TERRAIN_VERTEX, Shaders.TERRAIN_FRAGMENT, "terrain"),
             Triple(Shaders.TERRAIN_VERTEX_CALM, Shaders.TERRAIN_FRAGMENT_CALM, "terrain-calm"),

@@ -230,7 +230,8 @@ class GlRenderer(
     private fun drawSea(world: WorldView, cameraPos: Vec3) {
         val mesh = seaMesh ?: return
         val sea = mesh.surface ?: return
-        val shader = seaProgram ?: return
+        val field = world.tsunami.takeIf { qualityTier != QualityTier.LOW && world.water !== WorldView.AURANTIA_WATER }
+        val shader = (if (field == null) seaBakedProgram else seaProgram) ?: return
         shader.use()
         shader.setMat4("uViewProjection", nearViewProjection.m)
         placeSea(sea, cameraPos, shader, world.time, world.warp)
@@ -249,6 +250,7 @@ class GlRenderer(
         shader.setFloat("uUnderwater", if (world.underwater) 1f else 0f)
         applyShadowUniforms(shader, true)
         applyLamps(shader, true)
+        if (field != null) applyTsunami(shader, field, world.radius, cameraPos, world.time)
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glDisable(GLES30.GL_CULL_FACE)
@@ -277,6 +279,7 @@ class GlRenderer(
     private val shadowShapes = ArrayList<com.rm.apogee.core.part.Shape>()
     private val shadowCaps = IntList()
     private var seaProgram: ShaderProgram? = null
+    private var seaBakedProgram: ShaderProgram? = null
     private var seaMesh: SeaMesh? = null
     private val seaOrigin = Vec3()
     private var terrainDepth: ShaderProgram? = null
@@ -344,6 +347,7 @@ class GlRenderer(
         vesselDepthInstanced = ShaderProgram(Shaders.CLOUD_INSTANCED_VERTEX, Shaders.DEPTH_FRAGMENT, "vessel-depth-instanced")
         GLES30.glGenBuffers(1, shadowBuffer, 0)
         seaProgram = ShaderProgram(Shaders.SEA_VERTEX, Shaders.SEA_FRAGMENT, "sea")
+        seaBakedProgram = ShaderProgram(Shaders.SEA_VERTEX_BAKED, Shaders.SEA_FRAGMENT_BAKED, "sea-baked")
         terrainDepth = ShaderProgram(Shaders.TERRAIN_VERTEX, Shaders.DEPTH_FRAGMENT, "terrain-depth")
 
         // The sky shader makes its own vertices, but GLES still needs a bound VAO to draw.
@@ -951,7 +955,7 @@ class GlRenderer(
         shader.setVec3("uTsunamiEast", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
         interpolatedBodyRotation.rotate(field.north, tsunamiScratch)
         shader.setVec3("uTsunamiNorth", tsunamiScratch.x.toFloat(), tsunamiScratch.y.toFloat(), tsunamiScratch.z.toFloat())
-        if (shader === terrainProgram || shader === terrainLowProgram) {
+        if (shader === terrainProgram || shader === terrainLowProgram || shader === seaProgram) {
             applyTsunamiTexture(field)
             shader.setInt("uTsunamiField", 5)
         } else {
@@ -2008,6 +2012,7 @@ class GlRenderer(
         vesselDepthInstanced?.release(); vesselDepthInstanced = null
         if (shadowBuffer[0] != 0) { GLES30.glDeleteBuffers(1, shadowBuffer, 0); shadowBuffer[0] = 0 }
         seaProgram?.release(); seaProgram = null
+        seaBakedProgram?.release(); seaBakedProgram = null
         seaMesh = null
         terrainDepth?.release(); terrainDepth = null
         farValid = false

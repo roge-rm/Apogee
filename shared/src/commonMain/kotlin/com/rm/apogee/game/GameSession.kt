@@ -3203,6 +3203,8 @@ class GameSession private constructor(
         val picker = picker(view, width, height)
         val objects = mapObjects(view)
         val markers = objects.mapNotNull { pick ->
+            // Large world disks are a fallback, so their centre cannot cover a nearby path.
+            if (pick.kind == MapPickKind.WORLD && picker.radius(pick.at, pick.radius) > mapGrab) return@mapNotNull null
             val at = picker.project(pick.at) ?: return@mapNotNull null
             val distance = kotlin.math.hypot(at.first - x, at.second - y)
             if (distance <= mapGrab) pick to distance else null
@@ -4895,6 +4897,9 @@ class GameSession private constructor(
         // everyone else's from the server's pose, eased between snapshots.
         val animation = animations.getOrPut(vessel.id) { VesselAnimation() }
         if (animation.defsFor !== design) {
+            val previous = animation.defsFor
+            animation.spin = remapPartAnimation(previous, design, animation.spin, 0.0)
+            animation.ashSpin = remapPartAnimation(previous, design, animation.ashSpin, 1.0)
             animation.defs = design.parts.map { catalog[it.partId] }
             animation.defsFor = design
             animation.decodedFrom = null
@@ -5665,6 +5670,22 @@ class GameSession private constructor(
         /** The share of full turn rate a fuel rotor is drawn at with all its ash push gone (0.4 left), and the seconds it takes to change. */
         const val ASH_SPIN_LEAST = 0.65
         const val ASH_SPIN_EASING = 0.6
+
+        /** Keeps surviving parts' animation through staging, whose parent indices change. */
+        fun remapPartAnimation(previous: com.rm.apogee.core.craft.CraftDesign?, design: com.rm.apogee.core.craft.CraftDesign, values: DoubleArray, initial: Double): DoubleArray {
+            val old = previous?.parts ?: emptyList()
+            val used = BooleanArray(old.size)
+            return DoubleArray(design.parts.size) { i ->
+                val part = design.parts[i]
+                val before = old.indices.firstOrNull { j ->
+                    !used[j] && old[j].partId == part.partId && old[j].position == part.position && old[j].rotation == part.rotation
+                }
+                if (before == null) initial else {
+                    used[before] = true
+                    values.getOrElse(before) { initial }
+                }
+            }
+        }
 
         /** The drawn turn rate of a fuel rotor in [ash]: 1 in clean air, [ASH_SPIN_LEAST] at the push floor. */
         fun rotorAshSpin(ash: Double, forces: com.rm.apogee.core.world.Forces): Double {

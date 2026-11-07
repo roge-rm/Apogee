@@ -32,6 +32,8 @@ class SeaMesh {
         GLES30.glVertexAttribPointer(3, 1, GLES30.GL_FLOAT, false, stride, 7 * Float.SIZE_BYTES)
         GLES30.glEnableVertexAttribArray(4)
         GLES30.glVertexAttribPointer(4, 2, GLES30.GL_FLOAT, false, stride, 8 * Float.SIZE_BYTES)
+        GLES30.glEnableVertexAttribArray(5)
+        GLES30.glVertexAttribPointer(5, 1, GLES30.GL_FLOAT, false, stride, 10 * Float.SIZE_BYTES)
         GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, buffers[1])
         GLES30.glBindVertexArray(0)
     }
