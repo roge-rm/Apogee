@@ -9,11 +9,11 @@ It's ready to play and test. Build things, break things and let me know how it g
 Enjoy!
 Dan
 
-<img src="docs/shot-builder.png" alt="The Sounder in Vehicle Assembly, with its stage list and craft stats" width="400" /> <img src="docs/shot-terra-orbit.png" alt="The Prospector in a 250 km orbit above blue and green Terra" width="400" />
+<img src="docs/screenshots/0.11.0/builder.png" alt="The Sounder in Vehicle Assembly, with its stage list and craft stats" width="400" /> <img src="docs/screenshots/0.11.0/terra-orbit.png" alt="The Prospector in a 250 km orbit above blue and green Terra" width="400" />
 
-<img src="docs/shot-aurea-rings.png" alt="The Moonshot above banded Aurea and its rings" width="400" /> <img src="docs/shot-rubra.png" alt="The Buggy on Rubra's orange rocky plain" width="400" />
+<img src="docs/screenshots/0.11.0/aurea-rings.png" alt="The Moonshot above banded Aurea and its rings" width="400" /> <img src="docs/screenshots/0.11.0/rubra.png" alt="The Buggy on Rubra's orange rocky plain" width="400" />
 
-<img src="docs/shot-jetboat.png" alt="The Jet Boat leaving a white wake in the Cape's bright blue coastal water" width="400" /> <img src="docs/shot-storm.png" alt="The Zeppelin above the Cape coast and clouds" width="400" />
+<img src="docs/screenshots/0.11.0/jetboat.png" alt="The Jet Boat leaving a white wake in the Cape's bright blue coastal water" width="400" /> <img src="docs/screenshots/0.11.0/airship.png" alt="The Zeppelin above the Cape coast and clouds" width="400" />
 
 ---
 
