@@ -509,15 +509,17 @@ class CraftStats(
 
             // An electric engine runs off any battery aboard; charge isn't on a fuel line.
             val charged = defs.any { it.hasModule<com.rm.apogee.core.part.Battery>() }
+            val groups = FuelGroups.compute(design, defs)
             val enginesWithoutFuel = design.parts.indices.filter { index ->
                 val engine = defs[index].module<Engine>() ?: return@filter false
                 if (engine.propellant == ResourceType.ELECTRIC_CHARGE) return@filter !charged
-                FuelGroups.compute(design, defs).let { groups ->
-                    design.parts.indices.none {
-                        groups[it] == groups[index] &&
-                            defs[it].modules.filterIsInstance<Tank>()
-                                .any { tank -> tank.resource == ResourceType.PROPELLANT }
-                    }
+                // A solid motor can only burn the fuel stored in its own part.
+                if (engine.solid) return@filter defs[index].modules.filterIsInstance<Tank>()
+                    .none { it.resource == engine.propellant }
+                design.parts.indices.none {
+                    groups[it] == groups[index] &&
+                        defs[it].modules.filterIsInstance<Tank>()
+                            .any { tank -> tank.resource == engine.propellant }
                 }
             }
             if (enginesWithoutFuel.isNotEmpty()) {

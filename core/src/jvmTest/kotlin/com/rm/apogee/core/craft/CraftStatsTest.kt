@@ -1,5 +1,8 @@
 package com.rm.apogee.core.craft
 
+import com.rm.apogee.core.part.PartCatalog
+import com.rm.apogee.core.part.ResourceType
+import com.rm.apogee.core.part.Tank
 import com.rm.apogee.core.part.StockParts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -90,6 +93,48 @@ class CraftStatsTest {
             "should say what is missing: ${stats.problems}",
             stats.problems.any { it.contains("engine", ignoreCase = true) },
         )
+    }
+
+    @Test
+    fun `a solid motor needs a matching tank in its own part`() {
+        val design = StockCraft.sounder(catalog)
+        val motor = catalog.require("srb-flint")
+        val external = catalog.require("tank-cask2").let {
+            it.copy(modules = it.modules + Tank(ResourceType.SOLID_FUEL, 100.0))
+        }
+        for (tanks in listOf(emptyList(), listOf(Tank(ResourceType.PROPELLANT, 100.0)))) {
+            val broken = motor.copy(id = "srb-missing-fuel", modules = motor.modules.filterNot { it is Tank } + tanks)
+            val parts = PartCatalog.of(catalog.parts.values.filter { it.id != external.id } + external + broken)
+            val invalid = design.copy(parts = design.parts.map { part ->
+                if (part.partId == "engine-ember") part.copy(partId = broken.id) else part
+            })
+            val stats = CraftStats.analyze(invalid, parts)
+            assertFalse(stats.isFlyable)
+            assertEquals(listOf("1 engine(s) have no fuel tank connected"), stats.problems)
+        }
+    }
+
+    @Test
+    fun `a liquid engine cannot use a solid motor's fuel`() {
+        val design = StockCraft.sounder(catalog).let { sounder ->
+            sounder.copy(parts = sounder.parts.map {
+                if (it.partId == "tank-cask2") it.copy(partId = "srb-flint") else it
+            })
+        }
+        val stats = CraftStats.analyze(design, catalog)
+        assertFalse(stats.isFlyable)
+        assertEquals(listOf("1 engine(s) have no fuel tank connected"), stats.problems)
+    }
+
+    @Test
+    fun `a liquid engine cannot reach tanks across a non-feeding decoupler`() {
+        val design = StockCraft.sounder(catalog)
+        val disconnected = design.copy(parts = design.parts.map {
+            if (it.partId == "engine-ember") it.copy(parentIndex = 0) else it
+        })
+        val stats = CraftStats.analyze(disconnected, catalog)
+        assertFalse(stats.isFlyable)
+        assertEquals(listOf("1 engine(s) have no fuel tank connected"), stats.problems)
     }
 
     @Test

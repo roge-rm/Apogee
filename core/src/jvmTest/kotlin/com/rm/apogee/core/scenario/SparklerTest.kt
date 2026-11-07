@@ -23,6 +23,7 @@ class SparklerTest {
         val design = StockCraft.sparkler(catalog)
         assertTrue("won't validate: ${design.validate(catalog)}", design.validate(catalog).isEmpty())
         val stats = CraftStats.analyze(design, catalog)
+        assertTrue("should be flyable: ${stats.problems}", stats.isFlyable)
         val pad = TechTree.stock.facilities.pad[0]
         println("Sparkler: ${stats.totalMass} kg, ${design.parts.size} parts, TWR ${stats.liftoffTwr}")
         assertTrue("${stats.totalMass} kg", stats.totalMass <= pad.mass)

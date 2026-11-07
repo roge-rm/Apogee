@@ -1,12 +1,12 @@
 #!/bin/bash
-# Builds every file of an Apogee release from the committed tree, into ~/Projects/apogee-release-VERSION.
+# Builds every file of an Apogee release from the committed tree, into ~/Projects/releases/apogee-VERSION.
 # Usage: tools/build-release.sh 0.9.1
 set -euo pipefail
 V=${1:?usage: tools/build-release.sh VERSION}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-OUT=$HOME/Projects/apogee-release-$V
+OUT=$HOME/Projects/releases/apogee-$V
 cd "$REPO"
-[ -z "$(git status --porcelain | grep -v '^?? core\.')" ] || { echo "tree not clean"; exit 1; }
+[ -z "$(git status --porcelain)" ] || { echo "tree not clean"; exit 1; }
 grep -q "versionName = \"$V\"" app/build.gradle.kts || { echo "version is not $V"; exit 1; }
 mkdir -p "$OUT"
 
@@ -41,9 +41,5 @@ sha256sum "apogee-$V.apk" "apogee-$V-32bit.apk" "apogee_${V}_amd64.deb" "apogee_
     "apogee-$V-x86_64.AppImage" "apogee-$V-aarch64.AppImage" "apogee-$V-setup.exe" "apogee-$V-windows-x64.zip" > SHA256SUMS
 cat SHA256SUMS
 
-# Only the newest release folder is kept.
-for d in "$HOME"/Projects/apogee-release-*; do
-    v=${d##*-}
-    [ "$v" != "$V" ] && [ "$(printf '%s\n%s\n' "$v" "$V" | sort -V | head -1)" = "$v" ] && rm -rf "${d:?}"
-done
+# Retire the previous release folder after the new release is published and verified.
 echo DONE
