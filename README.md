@@ -194,5 +194,3 @@ The server runs the world. The app predicts your craft between updates and corre
 Apogee is free software under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE).
 
 Copyright © 2026 Dan Hunke.
-
-Disclaimer: I am not a great programmer and this was made using Claude Opus 5.0/5.5
