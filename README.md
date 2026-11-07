@@ -9,9 +9,11 @@ It's ready to play and test. Build things, break things and let me know how it g
 Enjoy!
 Dan
 
-<img src="docs/shot-terra-orbit.png" alt="The Prospector in orbit over Terra, the planet's blue curve and bright sea below it, with the orbit readout along the top and the throttle, navball and staging round the edges" width="180" /> <img src="docs/shot-aurea-rings.png" alt="The Moonshot in orbit round Aurea, a banded gold giant filling the lower half of the screen with its ring arcing round behind" width="180" /> <img src="docs/shot-luna.png" alt="An astronaut beside the Stilt Lander on Luna, standing on its legs on the grey ground, with Terra hanging in the black sky" width="180" />
+<img src="docs/shot-builder.png" alt="The Sounder in Vehicle Assembly, with its stage list and craft stats" width="400" /> <img src="docs/shot-terra-orbit.png" alt="The Prospector in a 250 km orbit above blue and green Terra" width="400" />
 
-<img src="docs/shot-rubra.png" alt="The Buggy driving across Rubra's red plain under a hazy orange sky, a long dark ridge behind it and the sun low over it" width="180" /> <img src="docs/shot-jetboat.png" alt="The Jet Boat running flat out across the Roaring Sea, spray thrown out behind it, with its speed, the wind and its heading along the top" width="180" /> <img src="docs/shot-storm.png" alt="The Zeppelin seen from below, hanging under a storm's dark ragged shelf, with fair weather cumulus and blue sky beyond" width="180" />
+<img src="docs/shot-aurea-rings.png" alt="The Moonshot above banded Aurea and its rings" width="400" /> <img src="docs/shot-rubra.png" alt="The Buggy on Rubra's orange rocky plain" width="400" />
+
+<img src="docs/shot-jetboat.png" alt="The Jet Boat leaving a white wake in the Cape's bright blue coastal water" width="400" /> <img src="docs/shot-storm.png" alt="The Zeppelin above the Cape coast and clouds" width="400" />
 
 ---
 
@@ -28,7 +30,7 @@ Dan
 - Save points and reverting to launch in your own world.
 - Hosting, joining and dedicated servers for shared worlds.
 
-Auto land is in the stability assist menu for anything that flies.
+Choose LAND in the stability assist menu for planes, rotorcraft and airships. Rockets get AUTO LAND in the landing readout when their lit engines can hold them up, with no solid motor lit or next in staging. In career mode, autopilots need the Flight Computer unlock.
 
 ---
 
@@ -53,7 +55,7 @@ Or from the [Releases](https://github.com/roge-rm/Apogee/releases) page:
 - Debian and Raspberry Pi OS: the `.deb` for your machine, amd64 or arm64. Install it with `sudo apt install ./apogee_*.deb`.
 - Other distributions (Ubuntu 22.04 and newer, Fedora, Arch, the Steam Deck): the AppImage, x86_64 or aarch64. It has its own Java, so just make it executable and run it.
 
-It needs OpenGL 3.3. F11 goes full screen.
+It needs OpenGL 3.3. F11 goes full screen. Settings, under Display, has Interface size and Text size controls.
 
 ### Steam Deck
 
@@ -68,6 +70,26 @@ Windows 10 or 11, 64-bit. From the [Releases](https://github.com/roge-rm/Apogee/
 Tap a world, craft, named place or orbit event to inspect it, then choose an action from its card. You can tap anywhere on a visible world, including the one you're orbiting, or tap its label. Overlapping markers offer a choice of objects. Tap empty space or Close to dismiss the card; double-tap an object to focus the view.
 
 Tap your orbit to select a point and see its altitude, speed and countdown. Choose Add burn to open the burn editor, or Warp here to stop shortly before that point. Tapping alone doesn't change your target or add a burn.
+
+## Building a craft
+
+Drag parts from the drawer onto an attachment point, or into a joint to insert them between parts. On a touchscreen, hold a fitted part to move it; with a mouse, drag it. You can leave pieces loose beside the craft while you work. Attach or remove them before saving a craft or launching. Your working assembly is kept when you leave the builder.
+
+Drag empty space to turn the view. Use two fingers to pan and pinch to zoom, or right-drag to pan and use the mouse wheel to zoom. On a keyboard:
+
+| | |
+|---|---|
+| Ctrl+Z | undo |
+| Ctrl+Shift+Z, Ctrl+Y | redo |
+| Ctrl+D | duplicate the selected part |
+| Ctrl+S | save |
+| Delete, Backspace | delete the selected part |
+| R | turn the part |
+| X | change symmetry |
+| G | change the part's action group |
+| F | centre the view |
+| Arrow keys | pan |
+| Esc | cancel a move or clear the selection |
 
 ## Playing in a browser
 
@@ -95,7 +117,7 @@ Drag to look around, use the wheel to zoom, and right-drag to pan in the Vehicle
 
 ## Playing with a controller
 
-Any gamepad works on Android, on the desktop and in a browser, including a handheld's built-in controls. I laid it out for the Retroid Pocket Mini:
+You can use a gamepad on Android, on the desktop and in a browser, including a handheld's built-in controls. I laid it out for the Retroid Pocket Mini:
 
 | | |
 |---|---|
@@ -114,11 +136,11 @@ Any gamepad works on Android, on the desktop and in a browser, including a handh
 | Select | gear and legs |
 | Start | the flight menu |
 
-On foot, A jumps, B grabs a ladder, X boards and Select plants a flag. In the water the triggers swim down and up. In the menus, the D-pad moves, A picks and B goes back. You can change any of it in Settings, under Controls. In a browser, press a button first so the page can see the controller.
+On foot, A jumps, B grabs a ladder, X boards and Select plants a flag. In the water the triggers swim down and up. On the map, both sticks turn the view, the triggers zoom, A picks what's in the middle, X focuses the next object and B or Y returns to flight. In the menus, the D-pad moves, A picks and B goes back. Change the gameplay buttons and stick roles in Settings, under Controls, then Controller buttons. In a browser, press a button first so the page can see the controller.
 
 ## Building it
 
-You need JDK 17 or newer, and the Android SDK for the app.
+You need JDK 17 or newer. The app, desktop and web builds also need the Android SDK.
 
 ```sh
 ./gradlew :app:assembleDebug                   # the debug APK, in app/build/outputs/apk/debug/
@@ -159,8 +181,9 @@ A dedicated server is a persistent world that players join from **Join a Game**.
 | `server` | The game server, the same one whether a phone hosts or a dedicated server runs it. |
 | `dedicated` | The standalone server, with its admin channel. |
 | `web-admin` | The dedicated server's admin page. |
-| `shared` | The game itself, for the app and the web page alike: the renderer, the sound, and the flight and builder screens. |
+| `shared` | The game itself, shared by Android, desktop and the web page: the renderer, the sound, and the flight and builder screens. |
 | `app` | The Android app around it. |
+| `desktop` | The Linux and Windows app, native sound engine and packages. |
 | `web` | The synth's build for the web page. |
 | `art` | The icon and the tools for the parts' pictures. |
 
