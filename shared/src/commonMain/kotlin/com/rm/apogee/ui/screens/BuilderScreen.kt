@@ -862,12 +862,12 @@ private fun LoadDialog(session: BuilderSession, pictures: Map<String, ImageBitma
     }
 
     com.rm.apogee.ui.BackHandler { onDismiss() }
-    // A page over the building, taking every touch so nothing reaches the parts behind.
-    androidx.compose.foundation.layout.Box(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        // Catch touches outside the controls without consuming the list's scroll gestures.
+        Box(
+            Modifier.matchParentSize()
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
+        )
         com.rm.apogee.ui.components.Backdrop(
             title = "Load craft", onBack = onDismiss, fillHeight = true, maxContentWidth = Dimens.WideContentMaxWidth,
         ) { contentModifier ->
